@@ -127,6 +127,14 @@
   .pacts .pri{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
   .take{border:1px solid var(--line);border-left:2px solid var(--accent);padding:9px 11px;margin:12px 0}
   .take h4{margin:0 0 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent)}
+  /* A structured summary is laid out like a structured abstract, so both read the same way. */
+  .take b{display:block;margin:12px 0 2px;font-size:11px;font-weight:700;letter-spacing:.06em;
+          text-transform:uppercase;color:var(--accent)}
+  .take b:first-of-type{margin-top:2px}
+  .take p{margin:0 0 2px;font-size:13.5px;line-height:1.55;max-width:46em}
+  .resum{margin-top:12px;padding-top:9px;border-top:1px solid var(--line)}
+  /* The global textarea is 190px tall, right for a keyword list and far too tall for one note. */
+  .resum textarea{min-height:0;margin-top:7px;font:12.5px/1.5 inherit}
   .abs{font-size:13.5px;line-height:1.55;max-width:46em}
   .abs b{display:block;margin:14px 0 2px;font-size:11px;font-weight:700;letter-spacing:.06em;
          text-transform:uppercase;color:var(--accent)}
@@ -649,12 +657,40 @@ function select(p){
         <label class="pickbtn">Attach a PDF<input type="file" accept="application/pdf,.pdf" hidden id="pick"></label>
         <span class="dragnote">… or drag one onto this box.</span>
       </div>`}
-    ${take?`<div class="take"><h4>${label}</h4>${p.ai_summary?sectionise(take):esc(take)}</div>`:''}
+    ${take?`<div class="take"><h4>${label}</h4>${p.ai_summary?sectionise(take):esc(take)}
+      ${p.ai_summary && aiOn()?`
+      <div class="resum">
+        <button data-a="resum-open"${p.ai_requested?' disabled':''}>${p.ai_requested?'Re-summary queued':'Re-summarise'}</button>
+        <div id="resumbox" hidden>
+          <textarea id="resumnote" rows="3" placeholder="Optional. Anything extra to ask for, for example: focus on the subgroup analysis, or say whether the effect holds in the over-80s, or explain why this disagrees with the earlier trial."></textarea>
+          <p class="hint">This is added to the usual request, so you still get every field back. Leave it
+             empty to simply run it again.</p>
+          <div class="act"><button class="pri" data-a="resum-go">Send</button>
+            <button data-a="resum-cancel">Cancel</button></div>
+        </div>
+      </div>`:''}
+    </div>`:''}
     ${abs?`<div class="abs">${abs}</div>`
          :`<p class="empty">No abstract yet. PubMed usually supplies one within a few days of publication.</p>`}`;
   $('#prev').querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
     const a = b.dataset.a;
     if(a==='openpdf'){ openPdf(p); return; }
+    if(a==='resum-open'){   $('#resumbox').hidden = false; $('#resumnote').focus(); return; }
+    if(a==='resum-cancel'){ $('#resumbox').hidden = true;  $('#resumnote').value = ''; return; }
+    if(a==='resum-go'){
+      const note = $('#resumnote').value.trim();
+      const r = await (await fetch(`/api/papers/${p.doi}?action=summarize`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({note})
+      })).json();
+      if(!r.ok){ toast(r.error || 'Could not queue it'); return; }
+      $('#resumbox').hidden = true;
+      p.ai_requested = 1;
+      const btn = $('#prev').querySelector('[data-a="resum-open"]');
+      if(btn){ btn.textContent = 'Re-summary queued'; btn.disabled = true; }
+      toast(note ? 'Queued with your note. The next run is within 15 minutes.'
+                 : 'Queued. The next run is within 15 minutes.');
+      return;
+    }
     if(a==='save'){
       b.disabled = true; b.textContent = 'Saving…';
       const r = await (await fetch(`/api/papers/${p.doi}?action=save`,{method:'POST'})).json();
@@ -1303,7 +1339,9 @@ function showCtx(e, p){
     <button data-c="star">${p.starred?'Remove from favourites':'Add to favourites'}</button>
     <button data-c="later">${p.read_later?'Remove from read later':'Read later'}</button>
     <hr>
-    ${!p.ai_summary && aiOn()?'<button data-c="summarize">Summarise with Claude</button>':''}
+    ${aiOn()?(p.ai_summary
+        ? '<button data-c="resummarize">Re-summarise, with a note</button>'
+        : '<button data-c="summarize">Summarise with Claude</button>'):''}
     <button data-c="copy">Copy DOI</button>
     ${p.pdf_error?`<hr><span class="dis" style="display:block;padding:4px 12px;font-size:11.5px">${esc(p.pdf_error)}</span>`:''}`;
   document.body.appendChild(m);
@@ -1325,6 +1363,14 @@ function showCtx(e, p){
       window.open(proxify(`https://doi.org/${p.doi}`),'_blank','noopener');
       select(p);
       toast('Sign in if asked, then click your "Send to Currents" bookmark on that page');
+      return;
+    }
+    // Opens the paper and its re-summary box rather than queueing straight from the menu. The note
+    // is the whole point of asking again, and a menu item has nowhere to collect one.
+    if(c==='resummarize'){
+      select(p);
+      const open = $('#prev').querySelector('[data-a="resum-open"]');
+      if(open && !open.disabled) open.click();
       return;
     }
     if(c==='open-offline'){ window.open(`/api/pdf/${p.doi}`,'_blank','noopener'); return; }

@@ -15,6 +15,16 @@ Every change from v1.1.0-alpha.1 onwards is recorded here as it is made. See
 - The right-click menu has **Get PDF via library**, which opens the paper through your proxy and
   marks the row as waiting for a file, so it is obvious which paper the next upload belongs to.
 
+- **A summary can be asked for again, with an extra instruction.** The Summarise action used to
+  vanish once a paper had a summary, so a bad one was permanent. Papers with a summary now show
+  Re-summarise under it, which opens a box for a one-off instruction, for example "I only want to
+  know whether this is usable at the bedside at one week, and what I would need to see before
+  believing it". The instruction is added after the field list and is told it may not drop a field,
+  so the shape survives: that example moved the bedside answer into the take-home and listed the
+  evidence needed, while all nine labels stayed. Leave the box empty to simply run it again. The
+  same thing is on the right-click menu, which opens the paper and the box rather than queueing
+  blind. The instruction is stored against the paper, used once, and cleared, so it cannot quietly
+  shape a later summary.
 - **Summaries are a setting now, under Settings, Summaries.** A toggle for whether they happen at
   all, a toggle for whether the full PDF is read, and how many papers one run of the scheduled task
   will do. Off by default: summaries need the Claude Code CLI installed and signed in, and they
@@ -49,6 +59,15 @@ Every change from v1.1.0-alpha.1 onwards is recorded here as it is made. See
 
 ### Fixed
 
+- **Two or more papers queued at once were merged into a single request.** Windows PowerShell 5.1
+  returns a JSON array from both `Invoke-RestMethod` and `ConvertFrom-Json` as one value, so
+  `@(...)` wrapped it again: the queue reported a count of 1 no matter how many papers were
+  waiting, and `queue[0].doi` returned every DOI concatenated, because PowerShell enumerates
+  members across an array. The loop built one prompt from several papers and filed the answer
+  against whichever DOI came first. Reproduced with two papers queued, count 1 and doi
+  "10.3389/... 10.1001/...", then fixed with an explicit `foreach` and confirmed: two papers, two
+  separate summaries, the instruction applied only to the one it was typed for. This predates the
+  changes above; it was invisible because the queue almost always held one paper.
 - **The summariser never actually read the PDF, in two separate ways, each of which failed
   silently.** The Claude Code CLI confines file access to its working directory, so the PDF needed
   `--add-dir` as well as `--allowedTools Read`; without it the file is simply unreadable and the

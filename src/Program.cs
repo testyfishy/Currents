@@ -119,8 +119,11 @@ using (var c0 = new SqliteConnection(connStr))
     // ATTENTION-LATE: 10.1001/jama.2026.15601 and ...15496, identical title and date, one carrying
     // the abstract and one not. DOI alone cannot see it; title + first author + date can.
     // dupe_of names the DOI this row duplicates; such rows are hidden from every list.
+    // ai_note holds a one-off instruction typed when asking for a re-summary, for example "focus on
+    // the subgroup analysis". It is consumed by the next run and cleared, so an old instruction can
+    // never quietly shape a later summary.
     foreach (var col in new[] { "oa_status", "pdf_file", "pdf_error", "abstract_sections",
-                                "abstract_format", "fingerprint", "dupe_of" })
+                                "abstract_format", "fingerprint", "dupe_of", "ai_note" })
         if (!have.Contains(col))
         {
             using var add = c0.CreateCommand();
@@ -1067,8 +1070,41 @@ static IResult Flip(string connStr, string doi, string sql)
     return cmd.ExecuteNonQuery() > 0 ? Results.Ok() : Results.NotFound();
 }
 
-app.MapPost("/api/papers/{*doi}", async (string doi, string? action) =>
+app.MapPost("/api/papers/{*doi}", async (string doi, string? action, HttpRequest req) =>
 {
+    // A re-summary may carry a one-off instruction, sent as {"note":"..."} in the body. It is read
+    // here rather than taken from the query string because it is free text a person typed, and a
+    // query string is the wrong place for a sentence with punctuation in it.
+    if (action == "summarize")
+    {
+        if (!LoadConfig().Ai.Enabled)
+            return Results.BadRequest(new { error = "summaries are switched off in Settings" });
+
+        string? note = null;
+        if (req.ContentLength > 0)
+        {
+            using var sr = new StreamReader(req.Body);
+            var raw = await sr.ReadToEndAsync();
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                try { note = JsonNode.Parse(raw)?["note"]?.GetValue<string>(); }
+                catch { /* a malformed body just means no note; the request still stands */ }
+            }
+        }
+        note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        // Capped so one paste cannot push the real prompt out of the model's attention.
+        if (note is { Length: > 1000 }) note = note[..1000];
+
+        using var c = new SqliteConnection(connStr); c.Open();
+        using var up = c.CreateCommand();
+        up.CommandText = "UPDATE papers SET ai_requested=1, ai_note=$n WHERE doi=$d";
+        up.Parameters.AddWithValue("$n", (object?)note ?? DBNull.Value);
+        up.Parameters.AddWithValue("$d", doi.ToLowerInvariant());
+        if (up.ExecuteNonQuery() == 0) return Results.NotFound(new { error = "unknown paper" });
+        log.LogInformation("summary requested for {Doi}{Note}", doi, note is null ? "" : $" with a note ({note.Length} chars)");
+        return Results.Json(new { ok = true, queued = true, note });
+    }
+
     if (action == "save")
     {
         var (ok, detail) = await DownloadPdf(doi.ToLowerInvariant());
@@ -1149,11 +1185,7 @@ app.MapPost("/api/papers/{*doi}", async (string doi, string? action) =>
     // Queued, not synchronous: the Claude Code CLI runs under the interactive user's credentials,
     // which this service, running under its own low-privilege account, cannot reach. The scheduled
     // task scripts\currents-summarize.ps1 picks these up and posts the result back.
-    // Refused outright when summaries are switched off, rather than queued and silently ignored:
-    // a request that disappears is worse than one that says no.
-        "summarize" => !LoadConfig().Ai.Enabled
-                       ? Results.BadRequest(new { error = "summaries are switched off in Settings" })
-                       : Flip(connStr, doi, "UPDATE papers SET ai_requested=1 WHERE doi=$doi"),
+    // "summarize" is handled above, before this switch, because it reads a request body.
         _           => Results.BadRequest(new { error = "action must be read|unread|star|later|save|summarize" })
     };
 });
@@ -1525,7 +1557,9 @@ app.MapPut("/api/papers/{*doi}", async (string doi, HttpRequest req) =>
     if (string.IsNullOrWhiteSpace(text)) return Results.BadRequest(new { error = "summary required" });
     using var c = new SqliteConnection(connStr); c.Open();
     using var cmd = c.CreateCommand();
-    cmd.CommandText = "UPDATE papers SET ai_summary=$s, ai_at=datetime('now'), ai_requested=0 WHERE doi=$doi";
+    // ai_note is cleared with the same statement. The instruction applied to this one run; leaving
+    // it behind would mean a later re-summary silently inherited a request nobody made again.
+    cmd.CommandText = "UPDATE papers SET ai_summary=$s, ai_at=datetime('now'), ai_requested=0, ai_note=NULL WHERE doi=$doi";
     cmd.Parameters.AddWithValue("$s", text);
     cmd.Parameters.AddWithValue("$doi", doi.ToLowerInvariant());
     return cmd.ExecuteNonQuery() > 0 ? Results.Ok() : Results.NotFound();
@@ -1545,7 +1579,7 @@ app.MapGet("/api/queue", () =>
 
     using var c = new SqliteConnection(connStr); c.Open();
     using var cmd = c.CreateCommand();
-    cmd.CommandText = "SELECT doi,title,journal,abstract,pdf_file FROM papers "
+    cmd.CommandText = "SELECT doi,title,journal,abstract,pdf_file,ai_note FROM papers "
                     + "WHERE ai_requested=1 AND abstract IS NOT NULL ORDER BY published DESC LIMIT $n";
     cmd.Parameters.AddWithValue("$n", take);
     var rows = new List<object>();
@@ -1563,7 +1597,8 @@ app.MapGet("/api/queue", () =>
             title = r.GetString(1),
             journal = r.IsDBNull(2) ? null : r.GetString(2),
             abstractText = r.GetString(3),
-            pdfPath
+            pdfPath,
+            note = r.IsDBNull(5) ? null : r.GetString(5)
         });
     }
     return Results.Json(rows);
