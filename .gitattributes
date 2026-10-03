@@ -1,0 +1,16 @@
+# Line endings.
+#
+# The repository stores LF for every text file. Without this, what gets recorded
+# depends on whoever committed and how their Git happened to be configured, and
+# a clone on another platform then shows every line of every file as changed.
+#
+# eol=lf is stated explicitly rather than left to each clone's core.autocrlf, so
+# a checkout is byte-identical on Windows, Linux and macOS.
+* text=auto eol=lf
+
+# PowerShell is the exception. These are run by Windows Task Scheduler and
+# edited in Windows editors, where CRLF is what everything expects.
+*.ps1 text eol=crlf
+
+# Binary. Never convert the bytes, never try to diff it as text.
+*.png binary
