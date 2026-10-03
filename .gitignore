@@ -6,7 +6,7 @@ trayapp/
 
 # Runtime state - database, PDFs, logs, and the live config.
 # data/config.json carries the user's own journal list, keyword vocabulary and LIBRARY PROXY,
-# so it is deliberately not committed. src/config.json is the shipped seed.
+# so it is not committed. src/config.json is the template that ships instead.
 data/
 logs/
 

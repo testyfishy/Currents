@@ -16,7 +16,7 @@
 //      calls go through a throttle and everything is batched.
 //
 //   3. TRIAGE: keyword scoring for stroke relevance + trial detection from text and registry IDs.
-//      PubMed's "Randomized Controlled Trial[pt]" filter is deliberately NOT used: it only matches
+//      PubMed's "Randomized Controlled Trial[pt]" filter is not used: it only matches
 //      MEDLINE-indexed records, so it would systematically hide the newest trials - the exact
 //      opposite of what this tool is for.
 //
@@ -147,7 +147,7 @@ Exec("CREATE INDEX IF NOT EXISTS ix_hl_doi ON highlights(doi, page);");
 Exec("CREATE INDEX IF NOT EXISTS ix_papers_discovered ON papers(discovered DESC);");
 Exec("CREATE INDEX IF NOT EXISTS ix_papers_fingerprint ON papers(fingerprint);");
 
-// Normalised title + publication date. The AUTHOR IS DELIBERATELY NOT IN THE KEY: it is precisely
+// Normalised title + publication date. The author is NOT part of the key, because it is precisely
 // the field that differs between a publisher's two deposits of one article. JAMA's two records for
 // ATTENTION-LATE carried "Rui Li" on one and no author at all on the other, so a key including the
 // author put them in different buckets and matched nothing - which is how the first attempt failed.
@@ -1133,7 +1133,7 @@ app.MapPost("/api/papers/{*doi}", async (string doi, string? action) =>
         "read"     => Flip(connStr, doi, "UPDATE papers SET read_at=datetime('now') WHERE doi=$doi"),
         "unread"   => Flip(connStr, doi, "UPDATE papers SET read_at=NULL WHERE doi=$doi"),
     // Queued, not synchronous: the Claude Code CLI runs under the interactive user's credentials,
-    // which this service (its own low-privilege account) deliberately cannot reach. The scheduled
+    // which this service, running under its own low-privilege account, cannot reach. The scheduled
     // task scripts\currents-summarize.ps1 picks these up and posts the result back.
         "summarize" => Flip(connStr, doi, "UPDATE papers SET ai_requested=1 WHERE doi=$doi"),
         _           => Results.BadRequest(new { error = "action must be read|unread|star|later|save|summarize" })

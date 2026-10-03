@@ -234,7 +234,7 @@
       <button class="chip" data-t="srma" aria-pressed="false"
               title="Systematic reviews and meta-analyses">SR / Meta-analysis</button>
       <span class="sp"></span>
-      <span class="count" id="count">—</span>
+      <span class="count" id="count">-</span>
     </div>
     <div class="bar" style="min-height:26px;padding-top:3px;padding-bottom:3px">
       <button id="fetch" title="Fetch new papers from all journals">Fetch</button>
@@ -419,7 +419,7 @@ function renderList(){
     if(fields.doitext)                  bits.push(`<span class="mono">${esc(p.doi)}</span>`);
     // stopPropagation so opening the DOI does not also select the row behind it
     if(fields.doilink)                  bits.push(`<a class="doil" href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">DOI ↗</a>`);
-    const meta = bits.filter(Boolean).join('<span class="sep">·</span>');
+    const meta = bits.filter(Boolean).join('<span class="sep">|</span>');
     const snip = fields.snippet && (p.ai_summary || p.conclusions);
     return `
     <button class="row ${p.read_at?'':'unread'}" data-i="${i}" role="option" aria-selected="${sel===p.doi}">
@@ -455,7 +455,7 @@ async function refreshStats(){
   const b = $('#badge');
   if(b){ b.hidden = !stats.unread; b.textContent = stats.unread > 99 ? '99+' : stats.unread; }
   const tc = $('#typecount');
-  if(tc) tc.textContent = `${stats.rct ?? 0} randomised · ${stats.srma ?? 0} SR/MA · ${stats.total ?? 0} tracked`;
+  if(tc) tc.textContent = `${stats.rct ?? 0} randomised, ${stats.srma ?? 0} SR/MA, ${stats.total ?? 0} tracked`;
 }
 
 /* ---------- preview ---------- */
@@ -489,7 +489,7 @@ function select(p){
   $('#prev').innerHTML = `
     <h1>${esc(p.title)}</h1>
     <div class="pmeta">
-      ${esc(p.journal||'')}${p.published?` · ${esc(p.published)}`:''}
+      ${esc(p.journal||'')}${p.published?`, ${esc(p.published)}`:''}
       ${p.authors?`<br>${esc(p.authors)}`:''}
       ${p.nct?`<br>Registry ${esc(p.nct)}`:''}
     </div>
@@ -514,7 +514,7 @@ function select(p){
       ${!p.ai_summary?`<button data-a="summarize"${p.ai_requested?' disabled':''}>${p.ai_requested?'Queued':'Summarise'}</button>`:''}
     </div>
     ${p.pdf_file?`<p class="hint" style="margin:12px 0">Offline copy saved.
-        <button data-a="openpdf" class="inlinebtn">Open PDF →</button> opens it beside this pane.</p>`:`
+        <button data-a="openpdf" class="inlinebtn">Open PDF</button> opens it beside this pane.</p>`:`
       <div class="drop" id="drop">
         <b>No offline copy yet.</b>
         ${p.pdf_error?`<span>${esc(p.pdf_error)}</span>`:''}
@@ -614,7 +614,7 @@ async function renderPanel(which){
             <td class="mono" style="font-size:11px">${esc(j.issn)}</td>
             <td>${j.tier}</td>
             <td class="num" title="Articles deposited in the last 120 days">${j.recent}</td>
-            <td class="num">${by[j.name]?by[j.name].kept:'—'}</td>
+            <td class="num">${by[j.name]?by[j.name].kept:'none'}</td>
           </tr>`).join('')}
         </tbody></table>`).join('')}
       ${extra.length?`<h3>Added by hand</h3>
@@ -676,17 +676,17 @@ async function renderPanel(which){
     el.innerHTML = `
       <h3>Topic filtering</h3>
       <p class="hint">Off by default: everything your journals publish reaches the inbox. Turn this on to
-         narrow to a subspecialty — the terms below then decide what is kept. Corrections and
+         narrow to a subspecialty, and the terms below then decide what is kept. Corrections and
          correspondence are dropped either way.</p>
       <label style="display:flex;gap:7px;align-items:center;margin:8px 0">
         <input type="checkbox" id="filton" ${fe?'checked':''}>
         Only keep papers matching the terms below
       </label>
-      <h3>Topic terms — what counts as relevant</h3>
+      <h3>Topic terms: what counts as relevant</h3>
       <textarea id="topic">${esc(cfg.topicTerms.join('\n'))}</textarea>
       <p class="hint">One per line. A match in the title scores 2, in the abstract 1. Matching is on whole
-         words, so short terms are safe — "tia" will not match inside "dementia".</p>
-      <h3>Trial terms — what gets the Trial badge</h3>
+         words, so short terms are safe. "tia" will not match inside "dementia".</p>
+      <h3>Trial terms: what gets the Trial badge</h3>
       <textarea id="trial" style="min-height:120px">${esc(cfg.trialTerms.join('\n'))}</textarea>
       <p class="hint">Publication types are not used: PubMed only assigns them after MEDLINE indexing,
          weeks later, which would hide exactly the new trials you want.</p>
@@ -711,7 +711,7 @@ async function renderPanel(which){
       <h3>Library proxy</h3>
       <p class="hint">Most papers in your journals are paywalled. A library proxy routes the link through
          your institution so the full text opens if you are entitled to it. Nothing is downloaded through
-         the proxy — it only changes the link you click.</p>
+         the proxy. It only changes the link you click.</p>
       <label style="display:flex;gap:7px;align-items:center;margin:10px 0">
         <input type="checkbox" id="pxon" ${px.enabled?'checked':''}> Use a library proxy
       </label>
@@ -724,7 +724,7 @@ async function renderPanel(which){
         <tr><th>Login URL</th><td><input id="pxlogin" value="${esc(px.loginUrl||'')}" placeholder="https://login.ezproxy.lib.example.edu/login?qurl=%u"></td></tr>
         <tr><th>URL scheme</th><td><input id="pxhost" value="${esc(px.hostPattern||'')}" placeholder="%h.ezproxy.lib.example.edu/%p"></td></tr>
       </tbody></table>
-      <p class="hint"><code>%u</code> the whole target URL · <code>%h</code> its host · <code>%p</code> its path.
+      <p class="hint"><code>%u</code> is the whole target URL, <code>%h</code> its host, <code>%p</code> its path.
          Your library publishes these on its off-campus access page. Starting-point URL is the more reliable
          of the two; hostname rewrite only works for publishers your library has configured.</p>
       <h3>Preview</h3>
@@ -748,7 +748,7 @@ async function renderPanel(which){
       cfgCache = cfgCache || {};
       cfgCache.proxy = collect();
       const out = proxify(`https://doi.org/${sample}`);
-      $('#pxprev').textContent = out || (collect().enabled ? '— template incomplete —' : '— proxy off, links go direct to doi.org —');
+      $('#pxprev').textContent = out || (collect().enabled ? 'Template incomplete' : 'Proxy off. Links go straight to doi.org.');
       cfgCache.proxy = saved;
     };
     el.querySelectorAll('#pxon,#pxname,#pxlogin,#pxhost,input[name=pxmode]').forEach(i => { i.oninput = preview; i.onchange = preview; });
@@ -763,11 +763,11 @@ async function renderPanel(which){
 
   if(which==='system'){
     const [sys, cov] = await Promise.all([get('/api/system'), get('/api/coverage')]);
-    const pct = (n,d) => d ? Math.round(n/d*100) + '%' : '—';
+    const pct = (n,d) => d ? Math.round(n/d*100) + '%' : 'n/a';
     el.innerHTML = `
       <h3>Coverage</h3>
       <table><thead><tr><th>Field</th><th class="num">Papers</th><th class="num">Share</th></tr></thead><tbody>
-        <tr><td>Tracked</td><td class="num">${cov.total}</td><td class="num">—</td></tr>
+        <tr><td>Tracked</td><td class="num">${cov.total}</td><td class="num">n/a</td></tr>
         <tr><td>Resolved to a PMID</td><td class="num">${cov.withPmid}</td><td class="num">${pct(cov.withPmid,cov.total)}</td></tr>
         <tr><td>With an abstract</td><td class="num">${cov.withAbstract}</td><td class="num">${pct(cov.withAbstract,cov.total)}</td></tr>
         <tr><td>With a parsed conclusion</td><td class="num">${cov.withConcl}</td><td class="num">${pct(cov.withConcl,cov.total)}</td></tr>
@@ -775,18 +775,18 @@ async function renderPanel(which){
         <tr><td>Abstract left as prose</td><td class="num">${cov.absPlain ?? 0}</td><td class="num">${pct(cov.absPlain ?? 0,cov.withAbstract)}</td></tr>
         <tr><td>With a registry id</td><td class="num">${cov.withNct}</td><td class="num">${pct(cov.withNct,cov.total)}</td></tr>
         <tr><td>Summarised</td><td class="num">${cov.summarised}</td><td class="num">${pct(cov.summarised,cov.total)}</td></tr>
-        <tr><td>Queued for summary</td><td class="num">${cov.queued}</td><td class="num">—</td></tr>
+        <tr><td>Queued for summary</td><td class="num">${cov.queued}</td><td class="num">n/a</td></tr>
       </tbody></table>
       <p class="hint">Papers without a PMID are usually just days old and not yet in PubMed; they pick up an
          abstract on a later fetch. A sharp fall in these shares means ingestion is broken.</p>
       <p class="hint"><b>Abstract left as prose</b> is expected for viewpoints, editorials and review series,
          which genuinely have no headings. If it climbs among research papers, a publisher is using a heading
-         style the splitter does not recognise — send one example and it can be added, then press
+         style the splitter does not recognise. Send one example and it can be added, then press
          <b>Re-clean abstracts</b> below to reprocess everything already stored.</p>
       <div class="act"><button id="reclean">Re-clean abstracts</button><span class="msg" id="rcmsg"></span></div>
       <h3>Offline copies</h3>
       <p class="hint">Downloading is on request only. These two make it automatic for the papers you have
-         already singled out — the ones you are most likely to want away from a desk. Only open-access
+         already singled out, which are the ones you are most likely to want away from a desk. Only open access
          full text is ever fetched; paywalled papers are attached by hand after you open them via your library.</p>
       <label style="display:flex;gap:7px;align-items:center;margin:6px 0">
         <input type="checkbox" id="asfav" ${cfg.autoSave && cfg.autoSave.onFavourite ? 'checked':''}>
@@ -805,9 +805,9 @@ async function renderPanel(which){
         <dt>Memory</dt><dd>${sys.process.memoryMb} MB</dd>
         <dt>Started</dt><dd>${new Date(sys.process.startedUtc).toLocaleString()}</dd>
         <dt>Runtime</dt><dd>.NET ${esc(sys.process.dotnet)}</dd>
-        <dt>Database</dt><dd>${(sys.dbSizeBytes/1024).toFixed(0)} KB · ${esc(sys.dbPath)}</dd>
+        <dt>Database</dt><dd>${(sys.dbSizeBytes/1024).toFixed(0)} KB, ${esc(sys.dbPath)}</dd>
         <dt>Config</dt><dd>${esc(sys.configPath)}</dd>
-        <dt>Journals</dt><dd>${sys.journalCount} watched · ${sys.topicTermCount} topic terms · threshold ${sys.minScore}</dd>
+        <dt>Journals</dt><dd>${sys.journalCount} watched, ${sys.topicTermCount} topic terms, threshold ${sys.minScore}</dd>
       </dl>
       <div class="act"><button class="pri" id="sfetch">Fetch now</button><span class="msg" id="smsg"></span></div>
       <h3>Recent fetches</h3>
@@ -890,7 +890,7 @@ async function openPdf(p){
     console.error('pdf render failed', e);
     wrap.innerHTML = `<p class="empty">Could not render this file in the app.<br>
       <small>${esc(e.message||e)}</small><br><br>
-      <a href="/api/pdf/${esc(p.doi)}" target="_blank" rel="noopener">Open it in a new tab instead →</a><br>
+      <a href="/api/pdf/${esc(p.doi)}" target="_blank" rel="noopener">Open it in a new tab instead</a><br>
       <small>Full detail is in the browser console.</small></p>`;
   }
 }
@@ -956,7 +956,7 @@ function renderHlList(){
   const wasOpen = !el.hidden;
   el.hidden = !wasOpen;
   el.innerHTML = hls.map(h => `<div class="h" data-goto="${h.page}"><i class="sw" style="background:${esc(h.color||'#ffd600')}"></i>
-      <span>p${h.page} · ${esc((h.text||'').slice(0,150))}</span>
+      <span>p${h.page}: ${esc((h.text||'').slice(0,150))}</span>
       <button class="x" data-id="${h.id}" title="Remove">×</button></div>`).join('');
   el.querySelectorAll('.x').forEach(b => b.onclick = async e => {
     e.stopPropagation();
@@ -1007,7 +1007,7 @@ $('#hlmode').onclick = () => {
   hlOn = !hlOn;
   $('#hlmode').setAttribute('aria-pressed', String(hlOn));
   $('#hlmode').textContent = 'Highlight: ' + (hlOn ? 'on' : 'off');
-  if(hlOn) toast('Select text to highlight · right-click a highlight to remove it');
+  if(hlOn) toast('Select text to highlight. Right-click a highlight to remove it.');
 };
 
 // Right-click a highlight to remove it.
@@ -1190,8 +1190,8 @@ $('#sort').value = sortBy;
 function paintDir(){
   $('#dir').innerHTML = sortDir === 'desc' ? '&#9660;' : '&#9650;';
   $('#dir').title = sortDir === 'desc'
-    ? 'Newest or highest first — click to reverse'
-    : 'Oldest or lowest first — click to reverse';
+    ? 'Newest or highest first. Click to reverse.'
+    : 'Oldest or lowest first. Click to reverse.';
 }
 paintDir();
 $('#sort').onchange = e => {

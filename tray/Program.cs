@@ -8,8 +8,8 @@
 //
 //   So this program is NOT the application. It is a REMOTE CONTROL for it, in the same relation as
 //   Syncthing Tray is to the Syncthing service. Quitting it stops nothing; it only removes the
-//   icon. That is deliberate and is spelled out on the menu item itself, because a "Quit" that
-//   silently left a service running would be worse than no Quit at all.
+//   icon. That is intended, and the menu item says so, because a "Quit" that silently left a
+//   service running would be worse than no Quit at all.
 //
 //   There is correspondingly no window to minimise. The reading interface is a web page, so
 //   closing that browser tab is the "minimise", and it costs nothing - state lives in the service.
@@ -155,16 +155,16 @@ static class Program
 
                 var s = await _http.GetFromJsonAsync<Stats>($"{LocalBase}/api/stats");
                 if (s is null) throw new InvalidOperationException("empty response");
-                _unread.Text = $"Unread: {s.Unread} of {s.Total}  ·  {s.Trials} trials";
+                _unread.Text = $"Unread: {s.Unread} of {s.Total},  {s.Trials} trials";
                 // The tray tooltip is capped at 63 characters by the shell; longer text is silently
                 // truncated rather than rejected, so keep it short on purpose.
-                _icon.Text = Trim63($"Currents — {s.Unread} unread, {s.Trials} trials");
+                _icon.Text = Trim63($"Currents: {s.Unread} unread, {s.Trials} trials");
                 SwapIcon(s.Unread);
             }
             catch
             {
                 _unread.Text = "Unread: service not responding";
-                _icon.Text = "Currents — not responding";
+                _icon.Text = "Currents: not responding";
                 SwapIcon(-1);
             }
         }

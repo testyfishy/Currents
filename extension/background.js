@@ -108,6 +108,6 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 function notify(title, message) {
-  // notifications permission is deliberately not requested; fall back to the badge alone.
+  // notifications permission is not requested, so the badge is the only feedback.
   try { console.info(`[Currents] ${title}: ${message}`); } catch { }
 }
