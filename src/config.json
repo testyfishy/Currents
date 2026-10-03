@@ -59,6 +59,24 @@
     "hostPattern": "%h.ezproxy.lib.example.edu/%p"
   },
 
+  "_ai_comment": [
+    "Structured summaries through the Claude Code CLI, which runs on an existing Claude",
+    "subscription rather than a paid API key. OFF by default: it needs the CLI installed and signed",
+    "in as the interactive user, and it spends that user's own allowance, so nothing happens until",
+    "you switch it on in Settings.",
+    "",
+    "readPdf   - also hand over the offline copy when there is one. This is what lets a summary say",
+    "            anything about baseline tables and figures, which is where unreported confounding",
+    "            usually hides. With no offline copy it falls back to the abstract alone.",
+    "maxPerRun - how many papers one run of the scheduled task will do. Small on purpose, because",
+    "            each one spends your own subscription allowance."
+  ],
+  "ai": {
+    "enabled": false,
+    "readPdf": true,
+    "maxPerRun": 5
+  },
+
   "minScore": 2,
   "topicTerms": [
     "stroke", "thrombectomy", "thrombolysis", "thrombolytic", "alteplase", "tenecteplase", "tpa",

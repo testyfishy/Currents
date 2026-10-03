@@ -1,5 +1,66 @@
 # Changelog
 
+Every change from v1.1.0-alpha.1 onwards is recorded here as it is made. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for what an entry has to say.
+
+## Unreleased
+
+### Added
+
+- **Send a PDF to Currents from the page you are reading it on.** Settings, Library proxy now
+  generates a bookmarklet holding your own server address. Open a paper through your library, and
+  one click on the bookmarklet finds the PDF, fetches it using the session your browser already
+  has, and posts it to Currents. Previously the only route was to save the file and attach it by
+  hand. This works on iOS and Android, which the browser extension never could.
+- The right-click menu has **Get PDF via library**, which opens the paper through your proxy and
+  marks the row as waiting for a file, so it is obvious which paper the next upload belongs to.
+
+- **Summaries are a setting now, under Settings, Summaries.** A toggle for whether they happen at
+  all, a toggle for whether the full PDF is read, and how many papers one run of the scheduled task
+  will do. Off by default: summaries need the Claude Code CLI installed and signed in, and they
+  spend that subscription's allowance, so no fresh install should start using it unasked.
+- With summaries off, the Summarise action is hidden in both the list and the right-click menu, the
+  queue returns nothing, and `?action=summarize` is refused with a message. It used to be queued
+  and then silently ignored, which is worse than being told no.
+
+### Changed
+
+- **The summary prompt was rewritten.** It used to return five loose fields from the abstract. It
+  now returns nine: take-home, population, intervention, comparator, outcome, harms, limits,
+  confounding and verdict. Population, intervention, comparator and outcome are asked for
+  separately with numbers, because "reduced mortality" is not an answer and "14.2 percent versus
+  19.8 percent, absolute difference 5.6 points" is. Limits asks only for what the authors do not
+  already emphasise, and confounding asks what in the tables and figures could produce the result
+  instead of the intervention, naming the table it is reading.
+- **The summariser reads the PDF when there is an offline copy.** Only the abstract was used
+  before, which cannot show an unbalanced baseline table or a confidence interval that crosses one.
+  Measured on one paper: the abstract-only summary said "n not stated" and "no tables or figures
+  were available"; the same paper with the PDF gave n 17, r 0.725, p 0.00099, and found that
+  adjusted R squared falls when the third predictor block is added, while the abstract headlines
+  the unadjusted figure.
+- Summaries are rendered with their labels in bold on separate lines, the same as a structured
+  abstract, instead of as one block of text.
+- Summary text is forced to plain ASCII before it is stored. Typographic dashes, arrows and maths
+  symbols are replaced with words or ASCII equivalents, because they do not render reliably.
+- `POST /api/upload/{doi}` now returns `Access-Control-Allow-Origin: *`, so a bookmarklet running
+  on a publisher's page can read the result and report whether it worked. This grants no new write
+  access: a cross-origin form post already reached the endpoint, the browser simply hid the reply.
+  No read endpoint sends the header, so no page can pull your library back out.
+
+### Fixed
+
+- **The summariser never actually read the PDF, in two separate ways, each of which failed
+  silently.** The Claude Code CLI confines file access to its working directory, so the PDF needed
+  `--add-dir` as well as `--allowedTools Read`; without it the file is simply unreadable and the
+  model writes a perfectly reasonable abstract-only summary that mentions the missing full text in
+  its limitations, which reads like an answer rather than a fault. Separately, Windows PowerShell
+  5.1 hands a JSON array back from `Invoke-RestMethod` as one pipeline object, so `@(...)` wrapped
+  it again and the queue's first element was the array rather than the paper. Field access such as
+  `$p.doi` still worked, because PowerShell enumerates members of a one-element array, so the
+  prompt looked correct while every property test against it returned false. The script now uses
+  `Invoke-WebRequest` with `ConvertFrom-Json`, and logs whether each summary used the full text or
+  the abstract alone, so this cannot fail quietly again.
+
 ## 1.1.0 (2026-10-03)
 
 Renamed from StrokeLit. Once journals became a catalogue the tool was no longer stroke-specific, and

@@ -319,6 +319,7 @@ const PANELS = [
   {id:'journals', label:'Journals',      icon:'M4 5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-2zM8 3v18'},
   {id:'keywords', label:'Filtering',     icon:'M3 5h18l-7 8v6l-4 2v-8z'},
   {id:'proxy',    label:'Library proxy', icon:'M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1'},
+  {id:'ai',       label:'Summaries',     icon:'M12 3v3M12 18v3M3 12h3M18 12h3M7.5 7.5 5.5 5.5M18.5 5.5l-2 2M7.5 16.5l-2 2M18.5 18.5l-2-2M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6'},
   {id:'system',   label:'System',        icon:'M4 5h16v5H4zM4 14h16v5H4zM8 7.5h.01M8 16.5h.01'}
 ];
 
@@ -345,6 +346,131 @@ function proxify(url){
     if(px.loginUrl) return px.loginUrl.replace('%u', encodeURIComponent(url));
   }catch(e){ /* a malformed template should never break the row */ }
   return null;
+}
+
+// Summaries are opt-in, so every entry point that offers one has to agree with the setting.
+// Checked in one place rather than three, because the version that drifted was the one where the
+// list hid the button and the right-click menu still showed it.
+function aiOn(){ return !!(cfgCache && cfgCache.ai && cfgCache.ai.enabled); }
+
+// Lays a summary out the same way as a structured abstract: label in bold, body on its own line.
+// The labels are not hardcoded. Anything of the form "LABEL: text" at the start of a line becomes a
+// heading, so the prompt can gain or lose a field without this needing to change. A line that is
+// not a label is treated as a continuation of the one above, which keeps a wrapped sentence whole.
+function sectionise(text){
+  const out = [];
+  for(const raw of String(text).replace(/\r/g,'').split('\n')){
+    const line = raw.trim();
+    if(!line) continue;
+    const m = line.match(/^([A-Z][A-Z0-9 \-\/]{1,28}):\s*(.*)$/);
+    if(m) out.push({ label: m[1].trim(), text: m[2].trim() });
+    else if(out.length) out[out.length-1].text += ' ' + line;
+    else out.push({ label: '', text: line });
+  }
+  if(!out.length) return esc(text);
+  return out.map(s => (s.label?`<b>${esc(s.label)}</b>`:'') + `<p>${esc(s.text)}</p>`).join('');
+}
+
+// The "Send to Currents" bookmarklet.
+//
+// Currents runs on a server, so it cannot hold the session your browser has with a publisher.
+// Storing a library login and replaying it is the thing systematic-download detection is built to
+// catch. This runs in the browser instead, in the tab you are already signed in to, and pushes the
+// file back. It is written as a normal function and then stringified, which keeps it readable and
+// reviewable here rather than being an unreadable one-liner in the source.
+async function sendToCurrents(){
+  const BASE = '__BASE__';
+  const note = (msg, bad) => {
+    const d = document.createElement('div');
+    d.textContent = 'Currents: ' + msg;
+    d.style.cssText = 'position:fixed;z-index:2147483647;left:50%;top:18px;transform:translateX(-50%)'
+      + ';padding:10px 16px;border-radius:6px;font:14px/1.4 system-ui,sans-serif;color:#fff'
+      + ';box-shadow:0 2px 12px rgba(0,0,0,.35);max-width:90vw;background:' + (bad ? '#a4262c' : '#107c10');
+    document.body.appendChild(d);
+    setTimeout(() => d.remove(), bad ? 9000 : 4000);
+  };
+  const meta = n => (document.querySelector('meta[name="' + n + '"]')
+                  || document.querySelector('meta[property="' + n + '"]'))?.content?.trim();
+
+  // The DOI, from the metadata publishers emit for Google Scholar, or from the URL as a fallback.
+  let doi = meta('citation_doi') || meta('dc.Identifier') || meta('DC.identifier') || meta('prism.doi') || '';
+  doi = doi.replace(/^(doi:|info:doi\/|https?:\/\/(dx\.)?doi\.org\/)/i, '').trim();
+  if(!doi){
+    const m = decodeURIComponent(location.href).match(/\b(10\.\d{4,9}\/[^\s"'<>&?#]+)/);
+    if(m) doi = m[1].replace(/[.,;)]+$/, '');
+  }
+  if(!doi) return note('no DOI on this page. Open the article page itself, not a list of results.', 1);
+
+  // citation_pdf_url is the Google Scholar convention and most publishers set it. If this page is
+  // already the PDF, use it as it stands.
+  let url = meta('citation_pdf_url');
+  if(!url && (document.contentType === 'application/pdf' || /\.pdf($|[?#])/i.test(location.pathname))) url = location.href;
+  if(!url){
+    const a = [...document.querySelectorAll('a[href]')].find(a =>
+      /\.pdf($|[?#])/i.test(a.getAttribute('href') || '') || /^\s*(full text |download )?pdf\s*$/i.test(a.textContent || ''));
+    if(a) url = a.href;
+  }
+  if(!url) return note('no PDF link found. Open the PDF itself, then click again.', 1);
+
+  note('fetching the PDF...');
+  let blob;
+  try{
+    // credentials:include reuses the session this browser already holds with the publisher. It is
+    // the same request the browser makes when you click their own download link.
+    const r = await fetch(new URL(url, location.href).href, { credentials: 'include' });
+    if(!r.ok) throw new Error('the publisher returned HTTP ' + r.status);
+    blob = await r.blob();
+  }catch(e){
+    return note('could not download it (' + e.message + '). Open the PDF itself, then click again.', 1);
+  }
+
+  // Catch a login or paywall page before it leaves the browser. The server checks this too, but
+  // failing here can say what actually went wrong.
+  const head = new TextDecoder().decode(await blob.slice(0, 5).arrayBuffer());
+  if(head.slice(0, 4) !== '%PDF') return note('that was not a PDF, probably a login page. Sign in through your library first.', 1);
+
+  const fd = new FormData();
+  fd.append('file', blob, doi.replace(/[^a-z0-9.]+/gi, '_') + '.pdf');
+  try{
+    const r = await fetch(BASE.replace(/\/+$/, '') + '/api/upload/' + doi, { method: 'POST', body: fd });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    note('saved, ' + (j.detail || '') + ', ' + doi);
+  }catch(e){
+    note('could not reach Currents (' + e.message + '). Check the address in Settings and that you are on the same network.', 1);
+  }
+}
+
+// Build the javascript: URL from the function above, with this server's address baked in.
+function bookmarkletHref(base){
+  const src = '(' + sendToCurrents.toString().replace("'__BASE__'", JSON.stringify(base)) + ')()';
+  return 'javascript:' + encodeURIComponent(src);
+}
+
+function renderBookmarklet(box){
+  const base = (cfgCache && cfgCache.publicUrl) || location.origin;
+  const href = bookmarkletHref(base);
+  // A page served over https cannot post to an http address. Safari blocks it outright and Chrome
+  // allows it only for localhost, so an http publicUrl will work at the desk and fail on a phone.
+  const insecure = /^http:\/\//i.test(base) && !/^http:\/\/(127\.0\.0\.1|localhost)\b/i.test(base);
+  box.innerHTML = `
+    <p class="hint">Drag this to your bookmarks bar, or right-click it and copy the link:</p>
+    <p><a id="bmlink" class="pri" style="display:inline-block;padding:6px 14px;text-decoration:none">Send to Currents</a></p>
+    <p class="hint">It points at <code>${esc(base)}</code>. Change <b>Public address</b> in the System
+       panel if that is not how your other devices reach this server, then come back here.</p>
+    ${insecure ? `<p class="hint" style="color:var(--bad)"><b>This address will not work from a phone.</b>
+       Publishers serve https, and a https page cannot send anything to a plain http address. Put
+       Currents behind https, with Tailscale or a reverse proxy, and set the public address to that.</p>` : ''}
+    <p class="hint"><b>On iOS or Android</b> you cannot drag a bookmark. Copy the text below, add any
+       page as a bookmark, then edit that bookmark and replace its address with what you copied.</p>
+    <textarea id="bmsrc" readonly style="min-height:90px;font-size:11px" onclick="this.select()"></textarea>
+    <div class="act"><button id="bmcopy">Copy to clipboard</button><span class="msg" id="bmmsg"></span></div>`;
+  box.querySelector('#bmlink').setAttribute('href', href);
+  box.querySelector('#bmsrc').value = href;
+  box.querySelector('#bmcopy').onclick = async () => {
+    try{ await navigator.clipboard.writeText(href); box.querySelector('#bmmsg').textContent = 'Copied.'; }
+    catch(e){ box.querySelector('#bmsrc').select(); box.querySelector('#bmmsg').textContent = 'Press Ctrl+C to copy.'; }
+  };
 }
 
 // 'unread' was the old default view; map any stored value to the inbox so an upgrade does not
@@ -511,7 +637,7 @@ function select(p){
       <button data-a="${p.read_at?'unread':'read'}">${p.read_at?'Mark unread':'Mark read'}</button>
       <button data-a="star">${p.starred?'Unfavourite':'Favourite'}</button>
       <button data-a="later">${p.read_later?'Not later':'Read later'}</button>
-      ${!p.ai_summary?`<button data-a="summarize"${p.ai_requested?' disabled':''}>${p.ai_requested?'Queued':'Summarise'}</button>`:''}
+      ${!p.ai_summary && aiOn()?`<button data-a="summarize"${p.ai_requested?' disabled':''}>${p.ai_requested?'Queued':'Summarise'}</button>`:''}
     </div>
     ${p.pdf_file?`<p class="hint" style="margin:12px 0">Offline copy saved.
         <button data-a="openpdf" class="inlinebtn">Open PDF</button> opens it beside this pane.</p>`:`
@@ -523,7 +649,7 @@ function select(p){
         <label class="pickbtn">Attach a PDF<input type="file" accept="application/pdf,.pdf" hidden id="pick"></label>
         <span class="dragnote">… or drag one onto this box.</span>
       </div>`}
-    ${take?`<div class="take"><h4>${label}</h4>${esc(take)}</div>`:''}
+    ${take?`<div class="take"><h4>${label}</h4>${p.ai_summary?sectionise(take):esc(take)}</div>`:''}
     ${abs?`<div class="abs">${abs}</div>`
          :`<p class="empty">No abstract yet. PubMed usually supplies one within a few days of publication.</p>`}`;
   $('#prev').querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
@@ -731,7 +857,17 @@ async function renderPanel(which){
       <p class="hint">What a real paper in your list will link to:</p>
       <div id="pxprev" class="mono" style="font-size:11.5px;word-break:break-all;border:1px solid var(--line);padding:8px"></div>
       <div class="act"><button class="pri" id="savepx">Save</button>
-        <button id="testpx">Open preview link</button><span class="msg" id="pxmsg"></span></div>`;
+        <button id="testpx">Open preview link</button><span class="msg" id="pxmsg"></span></div>
+      <h3>Send to Currents</h3>
+      <p class="hint">Currents cannot fetch a paywalled PDF itself. Doing that would mean storing your
+         library login and replaying it from a script, which is what publishers' systematic-download
+         detection looks for, and the usual result is that your whole institution loses access.</p>
+      <p class="hint">This does the next best thing. It is a bookmark holding a few lines of script.
+         Open a paper through your library, sign in as normal, then click the bookmark: it finds the
+         PDF on the page, downloads it using the session your browser already has, and sends it here.
+         One click instead of save-then-attach. It never sees your password, and it works on a phone,
+         which a browser extension cannot.</p>
+      <div id="bmbox"></div>`;
 
     const sample = (papers[0] && papers[0].doi) || '10.1001/jama.2026.15496';
     const collect = () => ({
@@ -753,11 +889,64 @@ async function renderPanel(which){
     };
     el.querySelectorAll('#pxon,#pxname,#pxlogin,#pxhost,input[name=pxmode]').forEach(i => { i.oninput = preview; i.onchange = preview; });
     preview();
+    renderBookmarklet($('#bmbox'));
     $('#testpx').onclick = () => { const u = $('#pxprev').textContent; if(u.startsWith('http')) window.open(u,'_blank','noopener'); };
     $('#savepx').onclick = async () => {
       cfg.proxy = collect();
       await saveCfg('#pxmsg');
       cfgCache = await get('/api/config');   // so every link picks it up immediately
+    };
+  }
+
+  if(which==='ai'){
+    const ai = cfg.ai || {enabled:false, readPdf:true, maxPerRun:5};
+    const cov = await get('/api/coverage');
+    el.innerHTML = `
+      <h3>Structured summaries</h3>
+      <p class="hint">A summary is produced by the Claude Code CLI already installed on this machine,
+         running on its existing subscription. There is no API key and nothing is billed per paper,
+         but every summary spends that subscription's allowance, so papers are only summarised when
+         you ask for one.</p>
+      <label style="display:flex;gap:7px;align-items:center;margin:10px 0">
+        <input type="checkbox" id="aion" ${ai.enabled?'checked':''}>
+        Allow summaries
+      </label>
+      <p class="hint">With this off, the Summarise action disappears from the list and the menu, and
+         the scheduled task finds nothing to do even if it is still running.</p>
+      <label style="display:flex;gap:7px;align-items:center;margin:10px 0">
+        <input type="checkbox" id="aipdf" ${ai.readPdf!==false?'checked':''}>
+        Read the full PDF when there is an offline copy
+      </label>
+      <p class="hint">This is what makes the limitations section worth reading. An abstract cannot show
+         you an unbalanced baseline table, a wide confidence interval in a figure, or an outcome that
+         was counted differently from how it was defined. Without an offline copy it falls back to the
+         abstract and says so.</p>
+      <table style="margin-top:8px"><tbody>
+        <tr><th style="width:14em">Papers per run</th>
+            <td><input id="aimax" type="number" min="1" max="25" value="${+ai.maxPerRun||5}" style="width:6em"></td></tr>
+      </tbody></table>
+      <p class="hint">The scheduled task runs every 15 minutes and does at most this many each time.
+         Kept low so a large queue cannot empty your allowance in one go.</p>
+      <h3>State</h3>
+      <table><tbody>
+        <tr><th style="width:14em">Summarised</th><td>${cov.summarised ?? 0} of ${cov.total} papers</td></tr>
+        <tr><th>Waiting in the queue</th><td>${cov.queued ?? 0}</td></tr>
+      </tbody></table>
+      <p class="hint">Summarising happens outside the service. Currents runs under its own account,
+         which cannot read your profile, and the CLI signs in as you. So the app only records the
+         request and a scheduled task running as you does the work and posts the answer back. If
+         summaries never arrive, that task is where to look, and its log is
+         <code>logs\\summarize.log</code>.</p>
+      <div class="act"><button class="pri" id="saveai">Save</button><span class="msg" id="aimsg"></span></div>`;
+    $('#saveai').onclick = async () => {
+      cfg.ai = {
+        enabled: $('#aion').checked,
+        readPdf: $('#aipdf').checked,
+        maxPerRun: Math.min(25, Math.max(1, +$('#aimax').value || 5))
+      };
+      await saveCfg('#aimsg');
+      cfgCache = await get('/api/config');
+      await load();
     };
   }
 
@@ -1106,6 +1295,7 @@ function showCtx(e, p){
   const via = proxify(`https://doi.org/${p.doi}`);
   m.innerHTML = `
     ${via?`<button data-c="open-proxy">Open via library</button>`:''}
+    ${via && !p.pdf_file?`<button data-c="get-proxy">Get PDF via library</button>`:''}
     <button data-c="open">Open paper (DOI)</button>
     ${offline}
     <hr>
@@ -1113,7 +1303,7 @@ function showCtx(e, p){
     <button data-c="star">${p.starred?'Remove from favourites':'Add to favourites'}</button>
     <button data-c="later">${p.read_later?'Remove from read later':'Read later'}</button>
     <hr>
-    ${!p.ai_summary?'<button data-c="summarize">Summarise with Claude</button>':''}
+    ${!p.ai_summary && aiOn()?'<button data-c="summarize">Summarise with Claude</button>':''}
     <button data-c="copy">Copy DOI</button>
     ${p.pdf_error?`<hr><span class="dis" style="display:block;padding:4px 12px;font-size:11.5px">${esc(p.pdf_error)}</span>`:''}`;
   document.body.appendChild(m);
@@ -1128,6 +1318,15 @@ function showCtx(e, p){
     hideCtx();
     if(c==='open'){ window.open(`https://doi.org/${p.doi}`,'_blank','noopener'); return; }
     if(c==='open-proxy'){ window.open(proxify(`https://doi.org/${p.doi}`),'_blank','noopener'); return; }
+    // Opens the paper through the library and selects the row, so the preview is already showing
+    // the paper the next upload belongs to. The fetch itself happens in that tab, with the
+    // bookmarklet, because only the browser holds the session the publisher will accept.
+    if(c==='get-proxy'){
+      window.open(proxify(`https://doi.org/${p.doi}`),'_blank','noopener');
+      select(p);
+      toast('Sign in if asked, then click your "Send to Currents" bookmark on that page');
+      return;
+    }
     if(c==='open-offline'){ window.open(`/api/pdf/${p.doi}`,'_blank','noopener'); return; }
     if(c==='copy'){ navigator.clipboard?.writeText(p.doi); return; }
     if(c==='save'){

@@ -207,6 +207,14 @@ Config LoadConfig()
     var journals = root["journals"]!.AsArray()
         .Select(j => new Journal(j!["issn"]!.GetValue<string>(), j["name"]!.GetValue<string>(), j["tier"]!.GetValue<int>()))
         .ToList();
+    // Summaries default OFF. They need the Claude Code CLI installed and signed in, they spend the
+    // user's own subscription allowance, and a fresh install cannot know whether either is true.
+    var ai = root["ai"];
+    var aiCfg = new AiConfig(
+        ai?["enabled"]?.GetValue<bool>() ?? false,
+        ai?["readPdf"]?.GetValue<bool>() ?? true,
+        ai?["maxPerRun"]?.GetValue<int>() ?? 5);
+
     return new Config(
         journals,
         // Filtering defaults OFF: a new install should show you the journals you subscribed to,
@@ -214,7 +222,8 @@ Config LoadConfig()
         root["filtering"]?["enabled"]?.GetValue<bool>() ?? false,
         root["minScore"]?.GetValue<int>() ?? 2,
         root["topicTerms"]!.AsArray().Select(t => t!.GetValue<string>().ToLowerInvariant()).ToArray(),
-        root["trialTerms"]!.AsArray().Select(t => t!.GetValue<string>().ToLowerInvariant()).ToArray());
+        root["trialTerms"]!.AsArray().Select(t => t!.GetValue<string>().ToLowerInvariant()).ToArray(),
+        aiCfg);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1140,7 +1149,11 @@ app.MapPost("/api/papers/{*doi}", async (string doi, string? action) =>
     // Queued, not synchronous: the Claude Code CLI runs under the interactive user's credentials,
     // which this service, running under its own low-privilege account, cannot reach. The scheduled
     // task scripts\currents-summarize.ps1 picks these up and posts the result back.
-        "summarize" => Flip(connStr, doi, "UPDATE papers SET ai_requested=1 WHERE doi=$doi"),
+    // Refused outright when summaries are switched off, rather than queued and silently ignored:
+    // a request that disappears is worse than one that says no.
+        "summarize" => !LoadConfig().Ai.Enabled
+                       ? Results.BadRequest(new { error = "summaries are switched off in Settings" })
+                       : Flip(connStr, doi, "UPDATE papers SET ai_requested=1 WHERE doi=$doi"),
         _           => Results.BadRequest(new { error = "action must be read|unread|star|later|save|summarize" })
     };
 });
@@ -1170,8 +1183,26 @@ app.MapGet("/api/pdf/{*doi}", (string doi) =>
 // suspension of the whole institution's access, not just one account. So the human does the
 // authenticated download in their browser, and the server only stores the result - after which it
 // is readable from every device on the tailnet, which was the actual goal.
-app.MapPost("/api/upload/{*doi}", async (string doi, HttpRequest req) =>
+// A browser may send a preflight before the bookmarklet's post, depending on how the form is
+// built. Answering it here keeps that case working without a CORS middleware over the whole app.
+app.MapMethods("/api/upload/{*doi}", new[] { "OPTIONS" }, (HttpResponse res) =>
 {
+    res.Headers["Access-Control-Allow-Origin"] = "*";
+    res.Headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+    res.Headers["Access-Control-Max-Age"] = "86400";
+    return Results.NoContent();
+});
+
+app.MapPost("/api/upload/{*doi}", async (string doi, HttpRequest req, HttpResponse res) =>
+{
+    // Let a page on a publisher's domain read the reply, so the bookmarklet can tell the user
+    // whether it worked. This grants no new ability to WRITE: a cross-origin multipart form post
+    // is a simple request and already reached this endpoint, the browser just hid the response.
+    // This header is NOT set on any GET route. There it would let any page the user visits read
+    // their library back out. There is also no Allow-Credentials, so no cookie or auth header
+    // rides along with the request.
+    res.Headers["Access-Control-Allow-Origin"] = "*";
+
     doi = doi.ToLowerInvariant();
     if (!req.HasFormContentType) return Results.BadRequest(new { error = "expected a file upload" });
     var form = await req.ReadFormAsync();
@@ -1501,14 +1532,40 @@ app.MapPut("/api/papers/{*doi}", async (string doi, HttpRequest req) =>
 });
 
 // What the summarizer task asks for.
+// The work queue the summarize task drains. It is the single place that decides whether summarising
+// happens at all, so turning the toggle off in the UI stops the scheduled task finding anything to
+// do, without having to disable the task itself.
 app.MapGet("/api/queue", () =>
 {
+    var cfg = LoadConfig();
+    if (!cfg.Ai.Enabled) return Results.Json(Array.Empty<object>());
+
+    // Clamped: this runs on a subscription, and a runaway batch spends the user's own allowance.
+    var take = Math.Clamp(cfg.Ai.MaxPerRun, 1, 25);
+
     using var c = new SqliteConnection(connStr); c.Open();
     using var cmd = c.CreateCommand();
-    cmd.CommandText = "SELECT doi,title,journal,abstract FROM papers WHERE ai_requested=1 AND abstract IS NOT NULL LIMIT 10";
+    cmd.CommandText = "SELECT doi,title,journal,abstract,pdf_file FROM papers "
+                    + "WHERE ai_requested=1 AND abstract IS NOT NULL ORDER BY published DESC LIMIT $n";
+    cmd.Parameters.AddWithValue("$n", take);
     var rows = new List<object>();
     using var r = cmd.ExecuteReader();
-    while (r.Read()) rows.Add(new { doi = r.GetString(0), title = r.GetString(1), journal = r.IsDBNull(2) ? null : r.GetString(2), abstractText = r.GetString(3) });
+    while (r.Read())
+    {
+        // The full-text path is handed over only when an offline copy actually exists and the user
+        // has asked for it to be read. Reading the PDF is what makes limitations and confounding
+        // visible, because those live in the tables, not the abstract.
+        var pdf = r.IsDBNull(4) ? null : r.GetString(4);
+        var pdfPath = (cfg.Ai.ReadPdf && !string.IsNullOrEmpty(pdf)) ? Path.Combine(pdfDir, pdf) : null;
+        rows.Add(new
+        {
+            doi = r.GetString(0),
+            title = r.GetString(1),
+            journal = r.IsDBNull(2) ? null : r.GetString(2),
+            abstractText = r.GetString(3),
+            pdfPath
+        });
+    }
     return Results.Json(rows);
 });
 
@@ -1654,5 +1711,9 @@ app.Run(url);
 // types - must come after every top-level statement (C# CS8803)
 // ---------------------------------------------------------------------------------------------
 record Journal(string Issn, string Name, int Tier);
-record Config(List<Journal> Journals, bool FilterEnabled, int MinScore, string[] TopicTerms, string[] TrialTerms);
+record Config(List<Journal> Journals, bool FilterEnabled, int MinScore, string[] TopicTerms, string[] TrialTerms, AiConfig Ai);
+// ReadPdf: hand the summariser the offline copy as well as the abstract. The abstract cannot show
+// whether a baseline table is unbalanced or whether a figure's confidence intervals cross one, and
+// those are the things worth knowing that the authors' own discussion tends not to volunteer.
+record AiConfig(bool Enabled, bool ReadPdf, int MaxPerRun);
 record PmRecord(string? Pmid, string? Abstract, string? AbstractJson, string? Conclusions, string? PubTypes, string? Nct);
