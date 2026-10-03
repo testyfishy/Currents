@@ -62,6 +62,11 @@ Renamed from StrokeLit. Once journals became a catalogue the tool was no longer 
 - The config file is now `config.json`, with a `schemaVersion` and a `publicUrl`. Secrets moved to
   `secrets.json`, which is gitignored and never returned by the API.
 - The service, scheduled tasks, paths, database filename and environment variables were all renamed.
+- The data folder now defaults to a `data` directory beside the executable, instead of a hardcoded
+  `C:\Currents\data`. A copy unzipped anywhere else used to write its database and settings to a
+  path the user had never heard of. Set `CURRENTS_DATA` to override it, which is what the service
+  installer does.
+- A self-contained Windows build, so running it needs no .NET install.
 
 ## 1.0.0 (2026-10-03)
 

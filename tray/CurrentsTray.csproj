@@ -11,6 +11,10 @@
     <AssemblyName>CurrentsTray</AssemblyName>
     <RootNamespace>CurrentsTray</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.1.0-alpha.1</Version>
+    <!-- Windows file metadata cannot hold a prerelease suffix, so these stay numeric. -->
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>

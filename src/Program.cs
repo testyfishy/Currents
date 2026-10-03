@@ -38,7 +38,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "yyyy-MM-dd HH:mm:ss "; });
 
-var dataDir = Environment.GetEnvironmentVariable("CURRENTS_DATA") ?? @"C:\Currents\data";
+// Defaults to a "data" folder beside the executable, so an unzipped copy keeps its database,
+// settings and PDFs together and can be moved or backed up by copying one folder. It used to
+// default to a hardcoded C:\Currents\data, which meant a copy unzipped anywhere else silently
+// wrote somewhere the user had never heard of. Service installs set CURRENTS_DATA explicitly.
+var dataDir = Environment.GetEnvironmentVariable("CURRENTS_DATA")
+              ?? Path.Combine(AppContext.BaseDirectory, "data");
 Directory.CreateDirectory(dataDir);
 var dbPath = Path.Combine(dataDir, "currents.db");
 var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath, Mode = SqliteOpenMode.ReadWriteCreate, Cache = SqliteCacheMode.Shared }.ToString();
@@ -171,7 +176,7 @@ CREATE TABLE IF NOT EXISTS ingest_log (
 // ---------------------------------------------------------------------------------------------
 // config  (record types are declared at the very bottom - C# requires top-level statements first)
 // ---------------------------------------------------------------------------------------------
-const string AppVersion = "1.1.0";
+const string AppVersion = "1.1.0-alpha.1";
 
 // Config lives in the DATA directory, not the app directory. Two reasons: the service account has
 // only read+execute on the app directory, so edits from the UI would fail there; and `dotnet

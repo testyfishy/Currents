@@ -7,7 +7,10 @@
     <AssemblyName>Currents</AssemblyName>
     <RootNamespace>Currents</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <Version>1.1.0</Version>
+    <Version>1.1.0-alpha.1</Version>
+    <!-- Windows file metadata cannot hold a prerelease suffix, so these stay numeric. -->
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
     <Description>A literature inbox for clinicians</Description>
     <!-- Keep the published output small and startup cheap; this box has ~1.8 GB RAM free. -->
     <PublishTrimmed>false</PublishTrimmed>

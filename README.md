@@ -97,14 +97,15 @@ To run it as a Windows service with a Tailscale address and scheduled fetches, s
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CURRENTS_DATA` | `C:\Currents\data` | Database, config and saved PDFs |
+| `CURRENTS_DATA` | a `data` folder beside the executable | Database, config and saved PDFs |
 | `CURRENTS_URL` | `http://127.0.0.1:8789` | Address to bind. Keep it on localhost. |
 | `CURRENTS_EMAIL` | none | Contact address sent to Crossref, NCBI and Unpaywall, which they ask for |
 | `CURRENTS_NCBI_KEY` | none | Optional. Raises NCBI's rate limit from 3 to 10 requests a second. |
 
 ## Configuration
 
-`data/config.json` is read again on every fetch and can be edited from the settings page:
+`config.json` inside the data folder is read again on every fetch and can be edited from the
+settings page:
 
 - `journals`, each with an ISSN, a name and a tier. Tier 1 means a journal where practice changes.
 - `filtering.enabled`, whether topic terms are applied at all.
