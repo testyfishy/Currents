@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Currents Saver",
+  "version": "1.0.0",
+  "description": "Save the article you are reading to your own Currents server. Never sees your password.",
+
+  "// permissions": [
+    "activeTab + scripting: read the DOI and the publisher's citation_pdf_url from the page you are",
+    "  looking at, and ONLY when you click the toolbar button. There is no content script running",
+    "  in the background on any site.",
+    "storage: remembers your server address. Nothing else is stored.",
+    "host_permissions <all_urls>: the PDF is fetched from whichever publisher you are reading, and",
+    "  there is no fixed list of those. The extension still only acts on an explicit click."
+  ],
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Save this paper to Currents" },
+  "options_page": "options.html",
+  "icons": { "128": "icon128.png" }
+}

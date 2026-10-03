@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Currents</AssemblyName>
+    <RootNamespace>Currents</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Version>1.1.0</Version>
+    <Description>A literature inbox for clinicians</Description>
+    <!-- Keep the published output small and startup cheap; this box has ~1.8 GB RAM free. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Editable at runtime: change a journal or a keyword and the next ingest picks it up,
+         no rebuild. LoadConfig() reads it from the app directory on every ingest. -->
+    <!-- Update, not Include: the Web SDK already globs .json as Content, so Include duplicates it
+         and fails the build with NETSDK1022. -->
+    <Content Update="config.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="catalogue.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="profiles.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <!-- Pinned explicitly: Microsoft.Data.Sqlite transitively pulls SQLitePCLRaw 2.1.11, whose
+         bundled native SQLite has a known HIGH severity advisory (GHSA-2m69-gcr7-jv3q).
+         This forces the patched 3.x line. Re-check with "dotnet list package" plus the
+         vulnerable flag after any upgrade; the build only warns, it does not fail. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+  </ItemGroup>
+
+</Project>

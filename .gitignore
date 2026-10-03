@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+app/
+trayapp/
+
+# Runtime state - database, PDFs, logs, and the live config.
+# data/config.json carries the user's own journal list, keyword vocabulary and LIBRARY PROXY,
+# so it is deliberately not committed. src/config.json is the shipped seed.
+data/
+logs/
+
+# Vendored browser libraries are fetched at build time, not committed
+src/wwwroot/vendor/
+
+# Editors / OS
+.vs/
+.idea/
+*.user
+Thumbs.db
+desktop.ini

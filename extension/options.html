@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Currents Saver</title>
+<style>
+  body{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       max-width:34em;margin:0;padding:20px;color:#17181b;background:#fff}
+  @media (prefers-color-scheme:dark){body{background:#14161a;color:#e3e5ea}
+    input{background:#1b1e23;color:#e3e5ea;border-color:#2b2f37}
+    .box{background:#14161a;border-color:#2b2f37}}
+  h1{font-size:16px;margin:0 0 4px}
+  p{color:#646a74;font-size:12.5px;margin:4px 0 14px}
+  label{display:block;font-weight:600;font-size:12.5px;margin-bottom:4px}
+  input{width:100%;padding:6px 8px;border:1px solid #d7d9de;border-radius:2px;font:inherit}
+  button{margin-top:12px;padding:5px 14px;border:1px solid #1d4ed8;background:#1d4ed8;color:#fff;
+         border-radius:2px;cursor:pointer;font-weight:600}
+  .ok{color:#15803d;font-size:12.5px;margin-left:8px}
+  .box{border:1px solid #d7d9de;padding:10px 12px;margin-top:18px;font-size:12.5px;background:#fafafa}
+  .box b{display:block;margin-bottom:4px}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+</style>
+
+<h1>Currents Saver</h1>
+<p>Saves the article you are reading to your own Currents server.</p>
+
+<label for="server">Your Currents address</label>
+<input id="server" placeholder="https://your-host.your-tailnet.ts.net:8444" autocomplete="off">
+<p>The same address you open Currents at. It must be reachable from this device &mdash; on a tailnet,
+   that means this device is signed in to it.</p>
+<button id="save">Save</button><span class="ok" id="msg"></span>
+
+<div class="box">
+  <b>What this extension can and cannot see</b>
+  It never renders a login form and never reads one, so your university password does not exist in
+  its world. When you click the toolbar button it reuses the session your browser already has, by
+  fetching with <code>credentials: "include"</code> &mdash; the same thing that happens when you click the
+  publisher's own download link.<br><br>
+  It does nothing until you click. There is no content script watching pages in the background, and
+  the only place it ever sends a file is the address above.
+</div>
+
+<script>
+  const $ = s => document.querySelector(s);
+  chrome.storage.sync.get({server:''}, s => { $('#server').value = s.server; });
+  $('#save').onclick = () => {
+    let v = $('#server').value.trim().replace(/\/+$/,'');
+    if(v && !/^https?:\/\//i.test(v)) v = 'https://' + v;
+    chrome.storage.sync.set({server:v}, () => {
+      $('#msg').textContent = 'Saved.';
+      setTimeout(() => $('#msg').textContent = '', 2500);
+    });
+  };
+</script>

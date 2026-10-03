@@ -1,0 +1,1239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Currents</title>
+<style>
+  /* Utilitarian on purpose: square corners, hairline rules, tight spacing, no shadows or pills.
+     This is a working tool that gets scanned many times a day, not a landing page. */
+  :root{
+    --bg:#ffffff; --rail:#f3f4f6; --head:#fafafa; --line:#d7d9de; --line-soft:#e8e9ed;
+    --ink:#17181b; --muted:#646a74; --accent:#1d4ed8; --sel:#e7eefc; --sel-line:#1d4ed8;
+    --trial:#8a4b00; --trial-bg:#fdf1e0; --t1:#8c1d1d; --t1-bg:#fbeaea; --ok:#15803d;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1115; --rail:#14161b; --head:#14161b; --line:#2b2f37; --line-soft:#21242b;
+      --ink:#e3e5ea; --muted:#8e96a3; --accent:#6f9cff; --sel:#182438; --sel-line:#6f9cff;
+      --trial:#d9a05a; --trial-bg:#2b2114; --t1:#e08a8a; --t1-bg:#301b1b; --ok:#5fb87f;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);overflow:hidden;
+       font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       font-variant-numeric:tabular-nums;}
+  button,input,select,textarea{font:inherit;color:inherit}
+
+  #app{display:grid;grid-template-columns:46px minmax(300px,0.9fr) 1.25fr;height:100vh}
+  /* PDF is a fourth column, opened on demand. Inline in the preview it pushed the take-home and
+     abstract below a 62vh frame, which made them unreachable - the reason this exists. */
+  #app.withpdf{grid-template-columns:46px minmax(240px,0.62fr) 0.95fr 1.15fr}
+  #pdfcol{display:none;flex-direction:column;border-left:1px solid var(--line);min-width:0}
+  #app.withpdf #pdfcol{display:flex}
+
+  /* ---- rail ---- */
+  #rail{background:var(--rail);border-right:1px solid var(--line);
+        display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:1px}
+  .r{width:34px;height:34px;display:grid;place-items:center;border:0;background:none;
+     color:var(--muted);cursor:pointer;position:relative;border-radius:2px}
+  .r:hover{background:var(--line-soft);color:var(--ink)}
+  .r[aria-current="true"]{background:var(--sel);color:var(--accent)}
+  .r[aria-current="true"]::before{content:"";position:absolute;left:-6px;top:4px;bottom:4px;width:2px;background:var(--accent)}
+  .r svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:square}
+  .r .n{position:absolute;top:1px;right:0;min-width:14px;height:13px;padding:0 3px;
+        background:var(--accent);color:#fff;font-size:9.5px;line-height:13px;text-align:center;border-radius:2px}
+  .rsep{width:22px;height:1px;background:var(--line);margin:5px 0}
+  .rspacer{flex:1}
+
+  /* ---- columns ---- */
+  /* min-height:0 on every column and on the scrollers inside them. A flex item defaults to
+     min-height:auto, which makes it grow to fit its content instead of scrolling - so overflow-y
+     is silently ignored and anything past the fold is unreachable. This is why the preview would
+     not scroll. */
+  #app > *{min-height:0}
+  #listcol{display:flex;flex-direction:column;border-right:1px solid var(--line);min-width:0;min-height:0;position:relative}
+  #fieldspop{position:absolute;top:32px;right:6px;z-index:30;background:var(--bg);
+             border:1px solid var(--line);padding:6px 8px;min-width:170px}
+  #fieldspop label{display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;font-size:12.5px}
+  #fieldspop input{margin:0}
+  #fieldspop hr{border:0;border-top:1px solid var(--line-soft);margin:5px 0}
+  #prevcol{display:flex;flex-direction:column;min-width:0;min-height:0}
+
+  .bar{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--line);
+       background:var(--head);min-height:34px;flex:none}
+  .bar h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--muted)}
+  .bar .sp{flex:1}
+  .bar input[type=search]{flex:1;min-width:60px;padding:3px 6px;border:1px solid var(--line);
+       background:var(--bg);border-radius:2px}
+  .bar select,.bar button{padding:3px 7px;border:1px solid var(--line);background:var(--bg);
+       border-radius:2px;cursor:pointer}
+  .bar button:hover{background:var(--line-soft)}
+  .bar button:disabled{opacity:.5;cursor:default}
+  .count{font-size:11.5px;color:var(--muted);white-space:nowrap}
+  .chip{padding:2px 8px;border:1px solid var(--line);background:var(--bg);border-radius:2px;
+        cursor:pointer;font-size:11.5px;color:var(--muted);white-space:nowrap}
+  .chip:hover{background:var(--line-soft);color:var(--ink)}
+  .chip[aria-pressed="true"]{background:var(--sel);border-color:var(--accent);color:var(--accent);font-weight:600}
+
+  /* ---- list ---- */
+  #list{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}
+  .row{display:block;width:100%;text-align:left;background:none;border:0;cursor:pointer;
+       border-bottom:1px solid var(--line-soft);border-left:2px solid transparent;padding:6px 10px}
+  .row:hover{background:var(--line-soft)}
+  .row[aria-selected="true"]{background:var(--sel);border-left-color:var(--sel-line)}
+  .row .t{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row.unread .t{font-weight:600}
+  .row .m{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:11.5px;margin-top:2px;
+          white-space:nowrap;overflow:hidden}
+  .row .s{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+          color:var(--muted);font-size:12px;margin-top:3px}
+  /* Density is spacing only. What a row shows is the Fields menu's job. */
+  #list[data-d="compact"] .row{padding:2px 10px}
+  #list[data-d="roomy"] .row{padding:10px}
+  .row .sep{margin:0 5px;opacity:.5}
+  .row .mono{font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:11px}
+  .row .doil{color:var(--accent);text-decoration:none}
+  .row .doil:hover{text-decoration:underline}
+  .dot{flex:none;width:6px;height:6px;background:var(--accent);display:inline-block;margin-right:5px}
+  .row:not(.unread) .dot{background:transparent;border:1px solid var(--line)}
+  .tag{font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:0 4px;
+       border:1px solid currentColor;color:var(--muted);flex:none}
+  .tag.trial{color:var(--trial);background:var(--trial-bg)}
+  .tag.syn{color:var(--accent);background:var(--sel)}
+  .tag.off{color:var(--ok);background:transparent}
+  .tag.later{color:var(--muted);border:0;font-size:11px;padding:0}
+  /* right-click menu */
+  #ctx{position:fixed;z-index:60;background:var(--bg);border:1px solid var(--line);min-width:180px;padding:3px 0}
+  #ctx button{display:block;width:100%;text-align:left;border:0;background:none;padding:4px 12px;
+              cursor:pointer;font-size:12.5px;color:var(--ink)}
+  #ctx button:hover{background:var(--sel)}
+  #ctx hr{border:0;border-top:1px solid var(--line-soft);margin:3px 0}
+  #ctx .dis{color:var(--muted);cursor:default}
+  #ctx .dis:hover{background:none}
+  .tag.t1{color:var(--t1);background:var(--t1-bg)}
+  .tag.star{color:#c08a00;border:0;font-size:12px;padding:0}
+
+  /* ---- preview ---- */
+  #prev{flex:1;min-height:0;overflow-y:auto;padding:14px 18px 48px}
+  #prev h1{font-size:17px;line-height:1.3;margin:0 0 6px}
+  .pmeta{color:var(--muted);font-size:12px;margin-bottom:10px}
+  .pacts{display:flex;flex-wrap:wrap;gap:5px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+  .pacts a,.pacts button{padding:3px 9px;border:1px solid var(--line);background:var(--bg);
+       color:var(--ink);text-decoration:none;cursor:pointer;border-radius:2px;font-size:12.5px}
+  .pacts a:hover,.pacts button:hover{background:var(--line-soft)}
+  .pacts .pri{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+  .take{border:1px solid var(--line);border-left:2px solid var(--accent);padding:9px 11px;margin:12px 0}
+  .take h4{margin:0 0 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent)}
+  .abs{font-size:13.5px;line-height:1.55;max-width:46em}
+  .abs b{display:block;margin:14px 0 2px;font-size:11px;font-weight:700;letter-spacing:.06em;
+         text-transform:uppercase;color:var(--accent)}
+  .abs b:first-child{margin-top:0}
+  .abs p{margin:0 0 2px}
+  .empty{color:var(--muted);padding:28px 18px;font-size:12.5px}
+  .pdfview{width:100%;height:62vh;border:1px solid var(--line);margin:12px 0;background:var(--bg)}
+  .drop{border:1px dashed var(--line);padding:14px;margin:12px 0;display:flex;flex-direction:column;gap:5px;
+        color:var(--muted);font-size:12.5px}
+  .drop b{color:var(--ink);font-size:13px}
+  .drop.over{border-color:var(--accent);background:var(--sel)}
+  /* A real, finger-sized button rather than a text link: on a phone this is the ONLY way to attach
+     a file, since drag-and-drop does not exist there and browser extensions are unavailable on
+     iOS Safari and Chrome for Android. */
+  .pickbtn{align-self:flex-start;margin-top:6px;padding:7px 16px;background:var(--accent);color:#fff;
+           font-weight:600;border-radius:2px;cursor:pointer;font-size:13px;min-height:34px;
+           display:inline-flex;align-items:center}
+  .pickbtn:hover{filter:brightness(1.08)}
+  .dragnote{font-size:11.5px}
+  /* Pointer-coarse devices have no drag-and-drop; do not advertise it there. */
+  @media (pointer:coarse){ .dragnote{display:none} }
+  .inlinebtn{border:1px solid var(--line);background:var(--bg);padding:1px 7px;border-radius:2px;cursor:pointer}
+  /* ---- pdf viewer ---- */
+  #pdfwrap{flex:1;overflow:auto;background:var(--rail);padding:8px}
+  .pg{position:relative;margin:0 auto 8px;background:#fff;box-shadow:0 0 0 1px var(--line)}
+  .pg canvas{display:block}
+  /* The text layer sits invisibly over the canvas so real text selection works; PDF.js positions
+     each span absolutely, which is what makes selection rectangles obtainable. */
+  /* Spans are transparent, so the layer itself stays fully opaque - dimming it would also dim the
+     selection highlight, which is the one thing that must be clearly visible while highlighting. */
+  .tl{position:absolute;inset:0;overflow:hidden;line-height:1;z-index:2;
+      text-size-adjust:none;forced-color-adjust:none}
+  .tl span{position:absolute;white-space:pre;transform-origin:0 0;color:transparent;cursor:text}
+  .tl ::selection{background:rgba(255,190,0,.6)}
+  /* Highlights sit BELOW the text layer and ignore the pointer, so text over an existing highlight
+     can still be selected. Removal is from the list underneath, not by clicking the mark. */
+  .hl{position:absolute;z-index:1;pointer-events:none;mix-blend-mode:multiply;border-radius:1px}
+  #hlmode[aria-pressed="true"]{background:var(--sel);border-color:var(--accent);color:var(--accent);font-weight:600}
+  #hllist{border-top:1px solid var(--line);max-height:34%;overflow:auto;padding:6px 8px;flex:none;
+          background:var(--head)}
+  #hllist .h{display:flex;gap:6px;align-items:flex-start;font-size:11.5px;padding:4px 0;cursor:pointer;
+             border-bottom:1px solid var(--line-soft)}
+  #hllist .h:hover{background:var(--sel)}
+  #hlshow[aria-expanded="true"]{background:var(--sel);border-color:var(--accent);color:var(--accent)}
+  #toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:70;
+         background:var(--ink);color:var(--bg);padding:7px 14px;border-radius:2px;font-size:12.5px;
+         box-shadow:0 1px 6px rgba(0,0,0,.25);max-width:90vw;text-align:center}
+  #hllist .sw{width:9px;height:9px;flex:none;margin-top:3px}
+  #hllist .x{margin-left:auto;border:0;background:none;color:var(--muted);cursor:pointer;padding:0 3px}
+  #hllist .x:hover{color:#c0392b}
+
+  /* ---- settings panels ---- */
+  #panel{flex:1;min-height:0;overflow-y:auto;padding:14px 18px 48px;display:none}
+  #panel h3{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+            margin:18px 0 7px;font-weight:600}
+  #panel h3:first-child{margin-top:0}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid var(--line);padding:3px 6px;text-align:left}
+  th{background:var(--head);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+  td input,td select{width:100%;border:0;background:none;padding:1px 2px}
+  td input:focus{outline:1px solid var(--accent)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  textarea{width:100%;min-height:190px;border:1px solid var(--line);background:var(--bg);
+           padding:7px;border-radius:2px;font:12.5px/1.5 ui-monospace,Consolas,"Courier New",monospace;resize:vertical}
+  .hint{color:var(--muted);font-size:11.5px;margin:5px 0 0}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 14px;font-size:12.5px}
+  .kv dt{color:var(--muted)}
+  .kv dd{margin:0;font-variant-numeric:tabular-nums}
+  .act{display:flex;gap:6px;margin-top:12px;align-items:center;flex-wrap:wrap}
+  .act button{padding:4px 11px;border:1px solid var(--line);background:var(--bg);cursor:pointer;border-radius:2px}
+  .act .pri{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+  .msg{font-size:12px}
+  .msg.ok{color:var(--ok)} .msg.err{color:#c0392b}
+
+  @media (max-width:860px){
+    #app{grid-template-columns:46px 1fr}
+    #prevcol{position:fixed;inset:0 0 0 46px;background:var(--bg);z-index:20;display:none}
+    #prevcol.show{display:flex}
+    #back{display:inline-block!important}
+  }
+  #back{display:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <nav id="rail" aria-label="Sections"></nav>
+
+  <div id="listcol">
+    <div class="bar">
+      <input type="search" id="q" placeholder="Search" aria-label="Search papers">
+      <select id="density" title="Row spacing" aria-label="Row spacing">
+        <option value="compact">Compact</option>
+        <option value="normal" selected>Normal</option>
+        <option value="roomy">Roomy</option>
+      </select>
+      <button id="fieldsbtn" title="Choose what each row shows" aria-expanded="false">Fields</button>
+      <div id="fieldspop" role="group" aria-label="Row fields" hidden></div>
+    </div>
+    <div class="bar" style="min-height:28px;padding-top:3px;padding-bottom:3px">
+      <button class="chip" data-s="unread" aria-pressed="false" title="Show only papers you have not read">Unread</button>
+      <button class="chip" data-s="read"   aria-pressed="false" title="Show only papers you have read">Read</button>
+      <span style="width:1px;height:16px;background:var(--line)"></span>
+      <button class="chip" data-t="rct"  aria-pressed="false"
+              title="Primary randomised studies only. Excludes reviews that merely pool randomised trials.">Randomised</button>
+      <button class="chip" data-t="srma" aria-pressed="false"
+              title="Systematic reviews and meta-analyses">SR / Meta-analysis</button>
+      <span class="sp"></span>
+      <span class="count" id="count">—</span>
+    </div>
+    <div class="bar" style="min-height:26px;padding-top:3px;padding-bottom:3px">
+      <button id="fetch" title="Fetch new papers from all journals">Fetch</button>
+      <button id="allread" title="Mark everything in this view as read">Mark all read</button>
+      <span class="sp"></span>
+      <label for="sort" class="count">Sort</label>
+      <select id="sort" aria-label="Sort order">
+        <option value="smart">Unread first</option>
+        <option value="published">Publication date</option>
+        <option value="added">Date added</option>
+        <option value="score">Relevance</option>
+        <option value="journal">Journal</option>
+        <option value="tier">Journal tier</option>
+        <option value="title">Title</option>
+      </select>
+      <button id="dir" title="Reverse the sort order" aria-label="Sort direction">&#9660;</button>
+    </div>
+    <div id="list" data-d="normal" role="listbox" aria-label="Papers"></div>
+  </div>
+
+  <div id="prevcol">
+    <div class="bar">
+      <button id="back" title="Back to list">&larr;</button>
+      <h2 id="ptitle">Preview</h2>
+    </div>
+    <div id="prev"><p class="empty">Select a paper.</p></div>
+    <div id="panel"></div>
+  </div>
+
+  <div id="pdfcol">
+    <div class="bar">
+      <h2 id="pdftitle">PDF</h2>
+      <span class="sp"></span>
+      <button id="hlshow" title="Show the highlights you have made" aria-expanded="false" hidden></button>
+      <button id="hlmode" title="Select text in the PDF to highlight it">Highlight: off</button>
+      <button id="hlexport" title="Download the PDF with highlights burned in">Export</button>
+      <button id="pdfclose" title="Close the PDF column">&times;</button>
+    </div>
+    <div id="pdfwrap"><p class="empty">No PDF open.</p></div>
+    <div id="hllist" hidden></div>
+  </div>
+</div>
+<script src="/vendor/pdf-lib.min.js"></script>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => (s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const get = (u) => fetch(u).then(r => r.json());
+
+// No "Trials" view: the old is_trial flag was a loose net that badged meta-analyses and
+// correspondence alike. Study type is now expressed precisely by the two filter chips.
+// Inbox is EVERY paper. Read state is a toggle beside the search, not a view - a paper that
+// disappears the moment you read it is impossible to find again, which is what used to happen.
+const VIEWS = [
+  {id:'inbox',   label:'Inbox',           icon:'M3 13h4l1 2h8l1-2h4M3 13l2-8h14l2 8v6H3z'},
+  {id:'tier1',   label:'Major journals',  icon:'M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6'},
+  {id:'starred', label:'Favourites',      icon:'M12 3l2.7 5.6 6.3.9-4.5 4.4 1 6.1-5.5-2.9-5.5 2.9 1-6.1L3 9.5l6.3-.9z'},
+  {id:'later',   label:'Read later',      icon:'M12 7v5l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z'},
+  {id:'offline', label:'Offline copies',  icon:'M12 3v10m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2'}
+];
+
+// What each list row may show. Density controls spacing only; this controls content, so the two
+// are independent and neither surprises the other.
+const FIELDS = [
+  {k:'tier',    label:'Major-journal mark', on:true},
+  {k:'type',    label:'Study type',         on:true},
+  {k:'offline', label:'Offline copy mark',  on:true},
+  {k:'star',    label:'Favourite mark',     on:true},
+  {k:'journal', label:'Journal',            on:true},
+  {k:'author',  label:'First author',       on:false},
+  {k:'date',    label:'Publication date',   on:true},
+  {k:'doilink', label:'DOI link',           on:false},
+  {k:'doitext', label:'DOI in full',        on:false},
+  {k:'snippet', label:'Take-home snippet',  on:false}
+];
+let fields = (() => {
+  const saved = JSON.parse(localStorage.getItem('sl.fields') || 'null');
+  const d = Object.fromEntries(FIELDS.map(f => [f.k, f.on]));
+  return saved ? {...d, ...saved} : d;   // merge, so a field added later gets its default
+})();
+const PANELS = [
+  {id:'journals', label:'Journals',      icon:'M4 5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-2zM8 3v18'},
+  {id:'keywords', label:'Filtering',     icon:'M3 5h18l-7 8v6l-4 2v-8z'},
+  {id:'proxy',    label:'Library proxy', icon:'M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1'},
+  {id:'system',   label:'System',        icon:'M4 5h16v5H4zM4 14h16v5H4zM8 7.5h.01M8 16.5h.01'}
+];
+
+// Config is loaded once at startup so the proxy settings are available to every link, not only
+// inside the settings panel.
+let cfgCache = null;
+
+// EZproxy comes in two flavours and libraries publish one or both:
+//   qurl     - a starting-point URL that carries the target as a parameter
+//              https://login.ezproxy.lib.example.edu/login?qurl=%u
+//   hostname - the target's host is rewritten to sit under the proxy domain
+//              %h.ezproxy.lib.example.edu/%p
+// %u = the whole target URL, %h = its host, %p = its path and query.
+function proxify(url){
+  const px = cfgCache && cfgCache.proxy;
+  if(!px || !px.enabled || !url) return null;
+  try{
+    const u = new URL(url);
+    if(px.mode === 'hostname' && px.hostPattern){
+      const path = (u.pathname + u.search + u.hash).replace(/^\//, '');
+      const built = px.hostPattern.replace('%h', u.hostname).replace('%p', path);
+      return built.startsWith('http') ? built : 'https://' + built;
+    }
+    if(px.loginUrl) return px.loginUrl.replace('%u', encodeURIComponent(url));
+  }catch(e){ /* a malformed template should never break the row */ }
+  return null;
+}
+
+// 'unread' was the old default view; map any stored value to the inbox so an upgrade does not
+// leave someone stuck on a view that no longer exists.
+let view = localStorage.getItem('sl.view') || 'inbox';
+if(view === 'unread' || view === 'all' || view === 'trials') view = 'inbox';
+let papers = [], sel = null, stats = {};
+
+/* ---------- rail ---------- */
+function buildRail(){
+  const mk = v => `<button class="r" data-v="${v.id}" title="${v.label}" aria-label="${v.label}"
+      aria-current="${view===v.id}"><svg viewBox="0 0 24 24"><path d="${v.icon}"/></svg>${
+      v.id==='inbox'?'<span class="n" id="badge" hidden></span>':''}</button>`;
+  $('#rail').innerHTML = VIEWS.map(mk).join('') + '<div class="rsep"></div>' +
+                         PANELS.map(mk).join('') + '<div class="rspacer"></div>';
+  $('#rail').querySelectorAll('.r').forEach(b => b.onclick = () => go(b.dataset.v));
+}
+const isPanel = v => PANELS.some(p => p.id === v);
+
+function go(v){
+  // Clicking the icon of the panel already open closes it and returns to the list.
+  if(isPanel(v) && view === v){ v = localStorage.getItem('sl.listview') || 'inbox'; }
+  if(!isPanel(v)) localStorage.setItem('sl.listview', v);
+  view = v; localStorage.setItem('sl.view', v);
+  $('#rail').querySelectorAll('.r').forEach(b => b.setAttribute('aria-current', b.dataset.v===v));
+  if(isPanel(v)){
+    $('#panel').style.display='block'; $('#prev').style.display='none';
+    $('#prevcol').classList.add('show');
+    $('#ptitle').textContent = PANELS.find(p=>p.id===v).label;
+    renderPanel(v);
+  } else {
+    $('#panel').style.display='none'; $('#prev').style.display='block';
+    $('#prevcol').classList.remove('show');
+    $('#ptitle').textContent = 'Preview';
+    load();
+  }
+}
+
+/* ---------- list ---------- */
+// Study-type chips are independent of the rail view: they narrow whatever view is open, and
+// several selected at once OR together.
+let types = JSON.parse(localStorage.getItem('sl.types') || '[]');
+let states = JSON.parse(localStorage.getItem('sl.states') || '[]');
+let sortBy = localStorage.getItem('sl.sort') || 'smart';
+let sortDir = localStorage.getItem('sl.dir') || 'desc';
+
+async function load(){
+  const q = $('#q').value.trim();
+  const u = `/api/papers?filter=${view}`
+          + (q ? `&q=${encodeURIComponent(q)}` : '')
+          + (types.length ? `&types=${types.join(',')}` : '')
+          + (states.length ? `&state=${states.join(',')}` : '')
+          + `&sort=${sortBy}&dir=${sortDir}`;
+  papers = await get(u);
+  renderList(); refreshStats();
+}
+
+function renderList(){
+  const el = $('#list');
+  if(!papers.length){ el.innerHTML = `<p class="empty">Nothing in this view.</p>`; $('#count').textContent='0 papers'; return; }
+  el.innerHTML = papers.map((p,i) => {
+    const bits = [];
+    // "Major" rather than "T1": tier is an internal scoring input, and T1 meant nothing on screen.
+    if(fields.tier && p.tier===1)       bits.push('<i class="tag t1" title="Major journal: NEJM, Lancet, JAMA, Lancet Neurology, JAMA Neurology, Stroke">Major</i>');
+    if(fields.type)                     bits.push(studyTag(p));
+    if(fields.offline && p.pdf_file)    bits.push(`<i class="tag off" title="Offline copy saved on the server">${p.pdf_file.endsWith('.html')?'TEXT':'PDF'}</i>`);
+    if(fields.star && p.starred)        bits.push('<i class="tag star" title="Favourite">★</i>');
+    if(fields.star && p.read_later)     bits.push('<i class="tag later" title="Read later">◴</i>');
+    if(fields.journal && p.journal)     bits.push(`<span>${esc(p.journal)}</span>`);
+    if(fields.author && p.authors)      bits.push(`<span>${esc(firstAuthor(p.authors))}</span>`);
+    if(fields.date && p.published)      bits.push(`<span>${esc(p.published)}</span>`);
+    if(fields.doitext)                  bits.push(`<span class="mono">${esc(p.doi)}</span>`);
+    // stopPropagation so opening the DOI does not also select the row behind it
+    if(fields.doilink)                  bits.push(`<a class="doil" href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">DOI ↗</a>`);
+    const meta = bits.filter(Boolean).join('<span class="sep">·</span>');
+    const snip = fields.snippet && (p.ai_summary || p.conclusions);
+    return `
+    <button class="row ${p.read_at?'':'unread'}" data-i="${i}" role="option" aria-selected="${sel===p.doi}">
+      <span class="t"><i class="dot"></i>${esc(p.title)}</span>
+      ${meta?`<span class="m">${meta}</span>`:''}
+      ${snip?`<span class="s">${esc(p.ai_summary||p.conclusions)}</span>`:''}
+    </button>`;
+  }).join('');
+  el.querySelectorAll('.row').forEach(b => {
+    b.onclick = () => select(papers[+b.dataset.i]);
+    b.oncontextmenu = e => { e.preventDefault(); showCtx(e, papers[+b.dataset.i]); };
+  });
+  $('#count').textContent = `${papers.length} paper${papers.length===1?'':'s'}`;
+}
+
+// Most specific label wins. A paper is never both: the classifier treats a synthesis of randomised
+// trials as a synthesis, not as a randomised study.
+// `authors` is stored as a comma-separated list; the first entry is the first author.
+function firstAuthor(a){
+  const first = (a||'').split(',')[0].trim();
+  return first ? first + ' et al.' : '';
+}
+
+function studyTag(p){
+  if(p.is_ma) return '<i class="tag syn">Meta-analysis</i>';
+  if(p.is_sr) return '<i class="tag syn">Syst. review</i>';
+  if(p.is_rct) return '<i class="tag trial">Randomised</i>';
+  return '';
+}
+
+async function refreshStats(){
+  stats = await get('/api/stats');
+  const b = $('#badge');
+  if(b){ b.hidden = !stats.unread; b.textContent = stats.unread > 99 ? '99+' : stats.unread; }
+  const tc = $('#typecount');
+  if(tc) tc.textContent = `${stats.rct ?? 0} randomised · ${stats.srma ?? 0} SR/MA · ${stats.total ?? 0} tracked`;
+}
+
+/* ---------- preview ---------- */
+function select(p){
+  sel = p.doi;
+  $('#list').querySelectorAll('.row').forEach((b,i) => b.setAttribute('aria-selected', papers[i].doi===p.doi));
+  $('#prevcol').classList.add('show');
+
+  // Keep the PDF column honest. Leaving the previous paper's PDF open beside a different article is
+  // worse than showing nothing, because everything on screen then looks like one paper.
+  if($('#app').classList.contains('withpdf') && pdfPaper && pdfPaper.doi !== p.doi){
+    if(p.pdf_file) openPdf(p);
+    else closePdf('No offline copy for this paper.');
+  }
+  const take = p.ai_summary || p.conclusions;
+  const label = p.ai_summary ? 'Claude take-home' : 'Authors’ conclusion';
+  // Structured abstracts come through as "LABEL: text" blocks; bold the labels so the section
+  // headings are scannable without re-reading the paragraph.
+  // Abstracts are cleaned and split into sections on INGEST, so this just lays out what is stored.
+  // It no longer tries to find headings with a regex at display time - that only worked for
+  // all-caps labels and left Crossref's run-on abstracts as an unreadable block.
+  let abs = '';
+  if(p.abstract_sections){
+    try{
+      const secs = JSON.parse(p.abstract_sections);
+      abs = secs.map(s => (s.label ? `<b>${esc(s.label)}</b>` : '') + `<p>${esc(s.text)}</p>`).join('');
+    }catch(e){ abs = `<p>${esc(p.abstract)}</p>`; }
+  } else if(p.abstract){
+    abs = `<p>${esc(p.abstract)}</p>`;
+  }
+  $('#prev').innerHTML = `
+    <h1>${esc(p.title)}</h1>
+    <div class="pmeta">
+      ${esc(p.journal||'')}${p.published?` · ${esc(p.published)}`:''}
+      ${p.authors?`<br>${esc(p.authors)}`:''}
+      ${p.nct?`<br>Registry ${esc(p.nct)}`:''}
+    </div>
+    <div class="pacts">
+      ${(() => {
+        const direct = `https://doi.org/${esc(p.doi)}`;
+        const via = proxify(`https://doi.org/${p.doi}`);
+        // When a library proxy is configured it becomes the primary action: it is the link that
+        // actually reaches full text for paywalled papers, which is most of them.
+        return via
+          ? `<a class="pri" href="${esc(via)}" target="_blank" rel="noopener" title="Through ${esc(cfgCache.proxy.name||'your library')}">Open via library</a>
+             <a href="${direct}" target="_blank" rel="noopener">Direct DOI</a>`
+          : `<a class="pri" href="${direct}" target="_blank" rel="noopener">Open paper</a>`;
+      })()}
+      ${p.pmid?`<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(p.pmid)}/" target="_blank" rel="noopener">PubMed</a>`:''}
+      ${p.nct?`<a href="https://clinicaltrials.gov/study/${esc(p.nct)}" target="_blank" rel="noopener">Registry</a>`:''}
+      ${p.pdf_file?`<button data-a="openpdf">Read PDF</button>`
+                  :`<button data-a="save">Save offline</button>`}
+      <button data-a="${p.read_at?'unread':'read'}">${p.read_at?'Mark unread':'Mark read'}</button>
+      <button data-a="star">${p.starred?'Unfavourite':'Favourite'}</button>
+      <button data-a="later">${p.read_later?'Not later':'Read later'}</button>
+      ${!p.ai_summary?`<button data-a="summarize"${p.ai_requested?' disabled':''}>${p.ai_requested?'Queued':'Summarise'}</button>`:''}
+    </div>
+    ${p.pdf_file?`<p class="hint" style="margin:12px 0">Offline copy saved.
+        <button data-a="openpdf" class="inlinebtn">Open PDF →</button> opens it beside this pane.</p>`:`
+      <div class="drop" id="drop">
+        <b>No offline copy yet.</b>
+        ${p.pdf_error?`<span>${esc(p.pdf_error)}</span>`:''}
+        <span>Open it via your library, save the PDF, then attach it here. It is then readable
+              from every device on your tailnet.</span>
+        <label class="pickbtn">Attach a PDF<input type="file" accept="application/pdf,.pdf" hidden id="pick"></label>
+        <span class="dragnote">… or drag one onto this box.</span>
+      </div>`}
+    ${take?`<div class="take"><h4>${label}</h4>${esc(take)}</div>`:''}
+    ${abs?`<div class="abs">${abs}</div>`
+         :`<p class="empty">No abstract yet. PubMed usually supplies one within a few days of publication.</p>`}`;
+  $('#prev').querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+    const a = b.dataset.a;
+    if(a==='openpdf'){ openPdf(p); return; }
+    if(a==='save'){
+      b.disabled = true; b.textContent = 'Saving…';
+      const r = await (await fetch(`/api/papers/${p.doi}?action=save`,{method:'POST'})).json();
+      if(!r.ok){ b.disabled = false; b.textContent = 'Save offline'; }
+      await load(); const back = papers.find(x=>x.doi===p.doi); if(back) select(back);
+      return;
+    }
+    await fetch(`/api/papers/${p.doi}?action=${a}`, {method:'POST'});
+    if(a==='summarize'){ b.textContent='Queued'; b.disabled=true; p.ai_requested=1; }
+    else { await load(); const again = papers.find(x=>x.doi===p.doi); if(again) select(again); }
+  });
+  // Attach a PDF the user downloaded themselves, by drag-and-drop or file picker.
+  const drop = $('#drop');
+  if(drop){
+    const send = async file => {
+      if(!file) return;
+      drop.classList.remove('over');
+      drop.querySelector('b').textContent = 'Uploading…';
+      const fd = new FormData(); fd.append('file', file);
+      try{
+        const r = await (await fetch(`/api/upload/${p.doi}`, {method:'POST', body:fd})).json();
+        if(!r.ok){ drop.querySelector('b').textContent = r.error || 'Upload failed'; return; }
+        await load(); const back = papers.find(x=>x.doi===p.doi); if(back) select(back);
+      }catch(e){ drop.querySelector('b').textContent = 'Upload failed'; }
+    };
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', e => { e.preventDefault(); send(e.dataTransfer.files[0]); });
+    $('#pick').onchange = e => send(e.target.files[0]);
+  }
+
+  if(!p.read_at){ fetch(`/api/papers/${p.doi}?action=read`, {method:'POST'}).then(() => { p.read_at='now'; renderList(); refreshStats(); }); }
+}
+
+/* ---------- settings panels ---------- */
+let cfg = null;
+
+async function renderPanel(which){
+  const el = $('#panel');
+  el.innerHTML = '<p class="empty">Loading…</p>';
+  cfg = await get('/api/config');
+
+  if(which==='journals'){
+    const [cat, st, prof] = await Promise.all([get('/api/catalogue'), get('/api/journals/stats'), get('/api/profiles')]);
+    const by = Object.fromEntries(st.map(s => [s.journal, s]));
+    const subscribed = new Set(cfg.journals.map(j => j.issn));
+    const cats = [...new Set(cat.journals.map(j => j.category))];
+    // Anything subscribed that is not in the catalogue - added by hand or from an older version.
+    const extra = cfg.journals.filter(j => !cat.journals.some(c => c.issn === j.issn));
+
+    el.innerHTML = `
+      <h3>Start from a specialty</h3>
+      <p class="hint">A preset sets the journals <em>and</em> the topic vocabulary in one step, so the feed
+         is aimed at your field from the first fetch. It is a starting point: everything it sets stays
+         editable below, and your current setup is backed up before it is replaced.</p>
+      <table><thead><tr><th>Specialty</th><th style="width:5em" class="num">Journals</th><th style="width:6em"></th></tr></thead><tbody>
+      ${(prof.profiles||[]).map(p => `<tr${cfg.activeProfile===p.id?' style="background:var(--sel)"':''}>
+        <td><b>${esc(p.name)}</b>${cfg.activeProfile===p.id?' <span class="tag">active</span>':''}
+            <br><span class="hint">${esc(p.description)}</span></td>
+        <td class="num">${p.issns.length}</td>
+        <td><button data-prof="${esc(p.id)}">Apply</button></td></tr>`).join('')
+        || '<tr><td colspan="3">No presets installed.</td></tr>'}
+      </tbody></table>
+
+      <h3>Journals</h3>
+      <p class="hint">Tick a journal to follow it. Everything it publishes arrives in your inbox; narrowing
+         to a topic is a separate, optional step under <b>Filtering</b>. Every ISSN here was resolved from
+         Crossref and checked for recent articles, so none of them are dead entries.</p>
+      <div class="act" style="margin-top:4px">
+        <input type="search" id="jq" placeholder="Search journals" style="flex:1;min-width:140px;padding:4px 8px;border:1px solid var(--line);border-radius:2px;background:var(--bg)">
+        <span class="msg" id="jcount"></span>
+      </div>
+      <div id="jlist">
+      ${cats.map(c => `
+        <h3>${esc(c)}</h3>
+        <table><thead><tr><th style="width:2.5em"></th><th>Journal</th><th style="width:8em">ISSN</th>
+          <th style="width:4em">Tier</th><th style="width:5em" class="num">Articles</th>
+          <th style="width:4em" class="num">Kept</th></tr></thead><tbody>
+        ${cat.journals.filter(j => j.category===c).map(j => `
+          <tr data-name="${esc(j.name.toLowerCase())}">
+            <td><input type="checkbox" data-issn="${esc(j.issn)}" data-jname="${esc(j.name)}" data-tier="${j.tier}" ${subscribed.has(j.issn)?'checked':''}></td>
+            <td>${esc(j.name)}</td>
+            <td class="mono" style="font-size:11px">${esc(j.issn)}</td>
+            <td>${j.tier}</td>
+            <td class="num" title="Articles deposited in the last 120 days">${j.recent}</td>
+            <td class="num">${by[j.name]?by[j.name].kept:'—'}</td>
+          </tr>`).join('')}
+        </tbody></table>`).join('')}
+      ${extra.length?`<h3>Added by hand</h3>
+        <table><thead><tr><th style="width:2.5em"></th><th>Journal</th><th style="width:8em">ISSN</th><th style="width:4em">Tier</th></tr></thead><tbody>
+        ${extra.map(j=>`<tr data-name="${esc((j.name||'').toLowerCase())}">
+          <td><input type="checkbox" checked data-issn="${esc(j.issn)}" data-jname="${esc(j.name)}" data-tier="${j.tier}"></td>
+          <td>${esc(j.name)}</td><td class="mono" style="font-size:11px">${esc(j.issn)}</td><td>${j.tier}</td></tr>`).join('')}
+        </tbody></table>`:''}
+      </div>
+      <h3>Add one that is not listed</h3>
+      <div class="act">
+        <input id="nissn" placeholder="ISSN, e.g. 0039-2499" style="width:11em;padding:4px 8px;border:1px solid var(--line);border-radius:2px;background:var(--bg)">
+        <input id="nname" placeholder="Name" style="flex:1;min-width:120px;padding:4px 8px;border:1px solid var(--line);border-radius:2px;background:var(--bg)">
+        <select id="ntier" style="padding:4px"><option value="1">Tier 1</option><option value="2" selected>Tier 2</option><option value="3">Tier 3</option></select>
+        <button id="addj">Add</button>
+      </div>
+      <p class="hint">Find an ISSN on the journal's own site or at portal.issn.org.</p>
+      <div class="act"><button class="pri" id="savej">Save subscriptions</button><span class="msg" id="jmsg"></span></div>`;
+
+    el.querySelectorAll('[data-prof]').forEach(b => b.onclick = async () => {
+      const p = (prof.profiles||[]).find(x => x.id === b.dataset.prof);
+      if(!confirm(`Apply "${p.name}"?\n\nThis replaces your ${cfg.journals.length} followed journals with ${p.issns.length}, and replaces the topic terms. Your current setup is backed up first.`)) return;
+      b.disabled = true; b.textContent = 'Applying…';
+      const r = await (await fetch(`/api/profiles/${b.dataset.prof}`, {method:'POST'})).json();
+      cfgCache = await get('/api/config');
+      await renderPanel('journals');
+      const m = $('#jmsg'); if(m){ m.className='msg ok'; m.textContent = `Applied: ${r.journals} journals. Press Fetch to fill the inbox.`; }
+    });
+
+    const count = () => {
+      const n = el.querySelectorAll('#jlist input[type=checkbox]:checked').length;
+      $('#jcount').textContent = `${n} followed`;
+    };
+    count();
+    el.querySelectorAll('#jlist input[type=checkbox]').forEach(c => c.onchange = count);
+    $('#jq').oninput = e => {
+      const q = e.target.value.trim().toLowerCase();
+      el.querySelectorAll('#jlist tr[data-name]').forEach(r => {
+        r.style.display = !q || r.dataset.name.includes(q) ? '' : 'none';
+      });
+    };
+    $('#addj').onclick = () => {
+      const issn = $('#nissn').value.trim(), name = $('#nname').value.trim() || issn;
+      if(!/^\d{4}-\d{3}[\dXx]$/.test(issn)){ $('#jmsg').className='msg err'; $('#jmsg').textContent='ISSN should look like 0039-2499.'; return; }
+      cfg.journals.push({ issn, name, tier:+$('#ntier').value });
+      renderPanel('journals');
+    };
+    $('#savej').onclick = () => {
+      cfg.journals = [...el.querySelectorAll('#jlist input[type=checkbox]:checked')].map(c => ({
+        issn: c.dataset.issn, name: c.dataset.jname, tier: +c.dataset.tier
+      }));
+      if(!cfg.journals.length){ $('#jmsg').className='msg err'; $('#jmsg').textContent='Follow at least one journal.'; return; }
+      saveCfg('#jmsg');
+    };
+  }
+
+  if(which==='keywords'){
+    const fe = cfg.filtering && cfg.filtering.enabled;
+    el.innerHTML = `
+      <h3>Topic filtering</h3>
+      <p class="hint">Off by default: everything your journals publish reaches the inbox. Turn this on to
+         narrow to a subspecialty — the terms below then decide what is kept. Corrections and
+         correspondence are dropped either way.</p>
+      <label style="display:flex;gap:7px;align-items:center;margin:8px 0">
+        <input type="checkbox" id="filton" ${fe?'checked':''}>
+        Only keep papers matching the terms below
+      </label>
+      <h3>Topic terms — what counts as relevant</h3>
+      <textarea id="topic">${esc(cfg.topicTerms.join('\n'))}</textarea>
+      <p class="hint">One per line. A match in the title scores 2, in the abstract 1. Matching is on whole
+         words, so short terms are safe — "tia" will not match inside "dementia".</p>
+      <h3>Trial terms — what gets the Trial badge</h3>
+      <textarea id="trial" style="min-height:120px">${esc(cfg.trialTerms.join('\n'))}</textarea>
+      <p class="hint">Publication types are not used: PubMed only assigns them after MEDLINE indexing,
+         weeks later, which would hide exactly the new trials you want.</p>
+      <h3>Threshold</h3>
+      <label>Keep papers scoring at least
+        <input type="number" id="minscore" min="1" max="20" value="${cfg.minScore}" style="width:4em;border:1px solid var(--line);padding:2px 4px">
+      </label>
+      <p class="hint">Lower to catch more and see more noise; raise for a tighter inbox. Takes effect on the next fetch.</p>
+      <div class="act"><button class="pri" id="savek">Save</button><span class="msg" id="kmsg"></span></div>`;
+    $('#savek').onclick = () => {
+      cfg.topicTerms = $('#topic').value.split('\n').map(s=>s.trim().toLowerCase()).filter(Boolean);
+      cfg.trialTerms = $('#trial').value.split('\n').map(s=>s.trim().toLowerCase()).filter(Boolean);
+      cfg.minScore = +$('#minscore').value || 2;
+      cfg.filtering = { enabled: $('#filton').checked };
+      saveCfg('#kmsg');
+    };
+  }
+
+  if(which==='proxy'){
+    const px = cfg.proxy || {enabled:false, name:'', mode:'qurl', loginUrl:'', hostPattern:''};
+    el.innerHTML = `
+      <h3>Library proxy</h3>
+      <p class="hint">Most papers in your journals are paywalled. A library proxy routes the link through
+         your institution so the full text opens if you are entitled to it. Nothing is downloaded through
+         the proxy — it only changes the link you click.</p>
+      <label style="display:flex;gap:7px;align-items:center;margin:10px 0">
+        <input type="checkbox" id="pxon" ${px.enabled?'checked':''}> Use a library proxy
+      </label>
+      <table style="margin-top:8px"><tbody>
+        <tr><th style="width:11em">Institution</th><td><input id="pxname" value="${esc(px.name||'')}" placeholder="Your university or hospital"></td></tr>
+        <tr><th>Method</th><td>
+          <label style="margin-right:14px"><input type="radio" name="pxmode" value="qurl" ${px.mode!=='hostname'?'checked':''}> Starting-point URL</label>
+          <label><input type="radio" name="pxmode" value="hostname" ${px.mode==='hostname'?'checked':''}> Hostname rewrite</label>
+        </td></tr>
+        <tr><th>Login URL</th><td><input id="pxlogin" value="${esc(px.loginUrl||'')}" placeholder="https://login.ezproxy.lib.example.edu/login?qurl=%u"></td></tr>
+        <tr><th>URL scheme</th><td><input id="pxhost" value="${esc(px.hostPattern||'')}" placeholder="%h.ezproxy.lib.example.edu/%p"></td></tr>
+      </tbody></table>
+      <p class="hint"><code>%u</code> the whole target URL · <code>%h</code> its host · <code>%p</code> its path.
+         Your library publishes these on its off-campus access page. Starting-point URL is the more reliable
+         of the two; hostname rewrite only works for publishers your library has configured.</p>
+      <h3>Preview</h3>
+      <p class="hint">What a real paper in your list will link to:</p>
+      <div id="pxprev" class="mono" style="font-size:11.5px;word-break:break-all;border:1px solid var(--line);padding:8px"></div>
+      <div class="act"><button class="pri" id="savepx">Save</button>
+        <button id="testpx">Open preview link</button><span class="msg" id="pxmsg"></span></div>`;
+
+    const sample = (papers[0] && papers[0].doi) || '10.1001/jama.2026.15496';
+    const collect = () => ({
+      enabled: $('#pxon').checked,
+      name: $('#pxname').value.trim(),
+      mode: el.querySelector('input[name=pxmode]:checked').value,
+      loginUrl: $('#pxlogin').value.trim(),
+      hostPattern: $('#pxhost').value.trim()
+    });
+    const preview = () => {
+      // Preview against the live form values, not the saved ones, so a template can be checked
+      // before committing it.
+      const saved = cfgCache ? cfgCache.proxy : null;
+      cfgCache = cfgCache || {};
+      cfgCache.proxy = collect();
+      const out = proxify(`https://doi.org/${sample}`);
+      $('#pxprev').textContent = out || (collect().enabled ? '— template incomplete —' : '— proxy off, links go direct to doi.org —');
+      cfgCache.proxy = saved;
+    };
+    el.querySelectorAll('#pxon,#pxname,#pxlogin,#pxhost,input[name=pxmode]').forEach(i => { i.oninput = preview; i.onchange = preview; });
+    preview();
+    $('#testpx').onclick = () => { const u = $('#pxprev').textContent; if(u.startsWith('http')) window.open(u,'_blank','noopener'); };
+    $('#savepx').onclick = async () => {
+      cfg.proxy = collect();
+      await saveCfg('#pxmsg');
+      cfgCache = await get('/api/config');   // so every link picks it up immediately
+    };
+  }
+
+  if(which==='system'){
+    const [sys, cov] = await Promise.all([get('/api/system'), get('/api/coverage')]);
+    const pct = (n,d) => d ? Math.round(n/d*100) + '%' : '—';
+    el.innerHTML = `
+      <h3>Coverage</h3>
+      <table><thead><tr><th>Field</th><th class="num">Papers</th><th class="num">Share</th></tr></thead><tbody>
+        <tr><td>Tracked</td><td class="num">${cov.total}</td><td class="num">—</td></tr>
+        <tr><td>Resolved to a PMID</td><td class="num">${cov.withPmid}</td><td class="num">${pct(cov.withPmid,cov.total)}</td></tr>
+        <tr><td>With an abstract</td><td class="num">${cov.withAbstract}</td><td class="num">${pct(cov.withAbstract,cov.total)}</td></tr>
+        <tr><td>With a parsed conclusion</td><td class="num">${cov.withConcl}</td><td class="num">${pct(cov.withConcl,cov.total)}</td></tr>
+        <tr><td>Abstract split into sections</td><td class="num">${cov.absSections ?? 0}</td><td class="num">${pct(cov.absSections ?? 0,cov.withAbstract)}</td></tr>
+        <tr><td>Abstract left as prose</td><td class="num">${cov.absPlain ?? 0}</td><td class="num">${pct(cov.absPlain ?? 0,cov.withAbstract)}</td></tr>
+        <tr><td>With a registry id</td><td class="num">${cov.withNct}</td><td class="num">${pct(cov.withNct,cov.total)}</td></tr>
+        <tr><td>Summarised</td><td class="num">${cov.summarised}</td><td class="num">${pct(cov.summarised,cov.total)}</td></tr>
+        <tr><td>Queued for summary</td><td class="num">${cov.queued}</td><td class="num">—</td></tr>
+      </tbody></table>
+      <p class="hint">Papers without a PMID are usually just days old and not yet in PubMed; they pick up an
+         abstract on a later fetch. A sharp fall in these shares means ingestion is broken.</p>
+      <p class="hint"><b>Abstract left as prose</b> is expected for viewpoints, editorials and review series,
+         which genuinely have no headings. If it climbs among research papers, a publisher is using a heading
+         style the splitter does not recognise — send one example and it can be added, then press
+         <b>Re-clean abstracts</b> below to reprocess everything already stored.</p>
+      <div class="act"><button id="reclean">Re-clean abstracts</button><span class="msg" id="rcmsg"></span></div>
+      <h3>Offline copies</h3>
+      <p class="hint">Downloading is on request only. These two make it automatic for the papers you have
+         already singled out — the ones you are most likely to want away from a desk. Only open-access
+         full text is ever fetched; paywalled papers are attached by hand after you open them via your library.</p>
+      <label style="display:flex;gap:7px;align-items:center;margin:6px 0">
+        <input type="checkbox" id="asfav" ${cfg.autoSave && cfg.autoSave.onFavourite ? 'checked':''}>
+        Fetch an offline copy when I add a paper to favourites
+      </label>
+      <label style="display:flex;gap:7px;align-items:center;margin:6px 0">
+        <input type="checkbox" id="aslater" ${cfg.autoSave && cfg.autoSave.onReadLater ? 'checked':''}>
+        Fetch an offline copy when I mark a paper read later
+      </label>
+      <div class="act"><button class="pri" id="saveas">Save</button>
+        <button id="saveall">Fetch for everything now</button><span class="msg" id="asmsg"></span></div>
+
+      <h3>Service</h3>
+      <dl class="kv">
+        <dt>Bound to</dt><dd>${esc(sys.bind)}</dd>
+        <dt>Memory</dt><dd>${sys.process.memoryMb} MB</dd>
+        <dt>Started</dt><dd>${new Date(sys.process.startedUtc).toLocaleString()}</dd>
+        <dt>Runtime</dt><dd>.NET ${esc(sys.process.dotnet)}</dd>
+        <dt>Database</dt><dd>${(sys.dbSizeBytes/1024).toFixed(0)} KB · ${esc(sys.dbPath)}</dd>
+        <dt>Config</dt><dd>${esc(sys.configPath)}</dd>
+        <dt>Journals</dt><dd>${sys.journalCount} watched · ${sys.topicTermCount} topic terms · threshold ${sys.minScore}</dd>
+      </dl>
+      <div class="act"><button class="pri" id="sfetch">Fetch now</button><span class="msg" id="smsg"></span></div>
+      <h3>Recent fetches</h3>
+      <table><thead><tr><th style="width:12em">When</th><th>Journal</th><th class="num">Seen</th><th class="num">Kept</th></tr></thead>
+      <tbody>${sys.recentIngests.map(r => `<tr><td>${new Date(r.ts).toLocaleString()}</td>
+        <td>${esc(r.journal)}</td><td class="num">${r.seen}</td><td class="num">${r.kept}</td></tr>`).join('')
+        || '<tr><td colspan="4">No fetches recorded yet.</td></tr>'}</tbody></table>`;
+    $('#sfetch').onclick = () => doFetch('#smsg');
+    $('#reclean').onclick = async () => {
+      const m = $('#rcmsg'); m.className='msg'; m.textContent='Reprocessing…';
+      const r = await (await fetch('/api/reclean', {method:'POST'})).json();
+      m.className='msg ok'; m.textContent = `${r.scanned} scanned, ${r.structured} now in sections.`;
+      renderPanel('system');
+    };
+    $('#saveas').onclick = async () => {
+      cfg.autoSave = { onFavourite: $('#asfav').checked, onReadLater: $('#aslater').checked };
+      await saveCfg('#asmsg');
+      cfgCache = await get('/api/config');
+    };
+    $('#saveall').onclick = async () => {
+      const m = $('#asmsg'); m.className='msg'; m.textContent='Fetching open-access copies…';
+      const r = await (await fetch('/api/save-all?max=60', {method:'POST'})).json();
+      m.className='msg ok'; m.textContent = `Tried ${r.attempted}, saved ${r.saved}.`;
+    };
+  }
+}
+
+async function saveCfg(msgSel){
+  const m = $(msgSel); m.className='msg'; m.textContent='Saving…';
+  const r = await fetch('/api/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg,null,2)});
+  if(r.ok){ m.className='msg ok'; m.textContent='Saved. Applies on the next fetch.'; }
+  else { const e = await r.json().catch(()=>({error:'failed'})); m.className='msg err'; m.textContent = e.error || 'Save failed'; }
+}
+
+async function doFetch(msgSel){
+  const btns = [$('#fetch'), $(msgSel)?$(msgSel).previousElementSibling:null].filter(Boolean);
+  btns.forEach(b => { b.disabled = true; });
+  const m = msgSel ? $(msgSel) : null;
+  if(m){ m.className='msg'; m.textContent='Fetching…'; }
+  $('#fetch').textContent = 'Fetching…';
+  try{
+    const r = await (await fetch('/api/ingest?days=14', {method:'POST'})).json();
+    if(m){ m.className='msg ok'; m.textContent = `${r.seen} seen, ${r.kept} kept.`; }
+    if(!isPanel(view)) await load(); else await renderPanel(view);
+  }catch(e){ if(m){ m.className='msg err'; m.textContent='Fetch failed.'; } }
+  finally{ btns.forEach(b => { b.disabled = false; }); $('#fetch').textContent='Fetch'; }
+}
+
+/* ---------- chrome ---------- */
+$('#density').value = localStorage.getItem('sl.density') || 'normal';
+$('#list').dataset.d = $('#density').value;
+$('#density').onchange = e => { $('#list').dataset.d = e.target.value; localStorage.setItem('sl.density', e.target.value); };
+/* ---------- pdf viewer with highlighting ---------- */
+let pdfDoc = null, pdfPaper = null, hls = [], hlOn = false, pdfjs = null;
+
+async function loadPdfjs(){
+  if(pdfjs) return pdfjs;
+  // Vendored locally, not from a CDN: an "offline copy" that needs the internet to render would
+  // defeat the point, and this box is reached over a private tailnet.
+  pdfjs = await import('/vendor/pdf.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.mjs';
+  return pdfjs;
+}
+
+async function openPdf(p){
+  pdfPaper = p;
+  $('#app').classList.add('withpdf');
+  $('#pdftitle').textContent = p.title.length > 44 ? p.title.slice(0,44) + '…' : p.title;
+  const wrap = $('#pdfwrap');
+  wrap.innerHTML = '<p class="empty">Rendering…</p>';
+  try{
+    const lib = await loadPdfjs();
+    hls = await get(`/api/highlights/${p.doi}`);
+    pdfDoc = await lib.getDocument({url:`/api/pdf/${p.doi}`}).promise;
+    wrap.innerHTML = '';
+    for(let n=1; n<=pdfDoc.numPages; n++) await renderPage(n, wrap);
+    drawHighlights();
+    renderHlList();
+  }catch(e){
+    console.error('pdf render failed', e);
+    wrap.innerHTML = `<p class="empty">Could not render this file in the app.<br>
+      <small>${esc(e.message||e)}</small><br><br>
+      <a href="/api/pdf/${esc(p.doi)}" target="_blank" rel="noopener">Open it in a new tab instead →</a><br>
+      <small>Full detail is in the browser console.</small></p>`;
+  }
+}
+
+async function renderPage(n, wrap){
+  const page = await pdfDoc.getPage(n);
+  // Fit the column width, capped so a wide page does not render at a silly resolution.
+  const avail = Math.max(280, wrap.clientWidth - 24);
+  const base = page.getViewport({scale:1});
+  const scale = Math.min(avail / base.width, 2.2);
+  const vp = page.getViewport({scale});
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  const div = document.createElement('div');
+  div.className = 'pg'; div.dataset.page = n;
+  div.style.width = vp.width + 'px'; div.style.height = vp.height + 'px';
+  // pdf.js 6 sizes the text-layer spans from this custom property. Older builds used
+  // --scale-factor; this one reads --total-scale-factor, and without it every span renders at the
+  // wrong size, so selection rectangles would not line up with the visible glyphs.
+  div.style.setProperty('--total-scale-factor', String(scale));
+  const cv = document.createElement('canvas');
+  cv.width = Math.floor(vp.width * dpr); cv.height = Math.floor(vp.height * dpr);
+  cv.style.width = vp.width + 'px'; cv.style.height = vp.height + 'px';
+  div.appendChild(cv);
+  const tl = document.createElement('div'); tl.className = 'tl'; div.appendChild(tl);
+  wrap.appendChild(div);
+
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  await page.render({canvasContext:ctx, viewport:vp}).promise;
+  const txt = await page.getTextContent();
+  const lib = await loadPdfjs();
+  // pdf.js 6 removed the renderTextLayer() helper in favour of a TextLayer class. Verified against
+  // the vendored build's export list: it exports TextLayer, and no renderTextLayer at all.
+  const layer = new lib.TextLayer({ textContentSource: txt, container: tl, viewport: vp });
+  await layer.render();
+}
+
+function drawHighlights(){
+  document.querySelectorAll('.hl').forEach(e => e.remove());
+  for(const h of hls){
+    const pg = document.querySelector(`.pg[data-page="${h.page}"]`);
+    if(!pg) continue;
+    const W = pg.clientWidth, H = pg.clientHeight;
+    for(const r of h.rects){
+      const d = document.createElement('div');
+      d.className = 'hl';
+      d.style.cssText = `left:${r.x*W}px;top:${r.y*H}px;width:${r.w*W}px;height:${r.h*H}px;background:${h.color||'rgba(255,214,0,.45)'}`;
+      d.title = (h.text||'').slice(0,160);
+      pg.appendChild(d);
+    }
+  }
+}
+
+function renderHlList(){
+  const el = $('#hllist'), btn = $('#hlshow');
+  // Behind a button rather than always on screen: the list is reference material, and permanently
+  // parked under the page it eats reading height for something you look at occasionally.
+  btn.hidden = !hls.length;
+  btn.textContent = hls.length ? `☰ ${hls.length}` : '';
+  btn.title = `Show ${hls.length} highlight${hls.length===1?'':'s'}`;
+  if(!hls.length){ el.hidden = true; el.innerHTML = ''; btn.setAttribute('aria-expanded','false'); return; }
+  const wasOpen = !el.hidden;
+  el.hidden = !wasOpen;
+  el.innerHTML = hls.map(h => `<div class="h" data-goto="${h.page}"><i class="sw" style="background:${esc(h.color||'#ffd600')}"></i>
+      <span>p${h.page} · ${esc((h.text||'').slice(0,150))}</span>
+      <button class="x" data-id="${h.id}" title="Remove">×</button></div>`).join('');
+  el.querySelectorAll('.x').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    await fetch(`/api/highlights/${pdfPaper.doi}?del=${b.dataset.id}`, {method:'POST'});
+    hls = hls.filter(x => String(x.id) !== b.dataset.id);
+    drawHighlights(); renderHlList();
+  });
+  // Clicking an entry jumps to its page - otherwise the list is a dead end on a long paper.
+  el.querySelectorAll('[data-goto]').forEach(r => r.onclick = () => {
+    const pg = document.querySelector(`.pg[data-page="${r.dataset.goto}"]`);
+    if(pg) pg.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+}
+
+function closePdf(why){
+  $('#app').classList.remove('withpdf');
+  pdfDoc = null; pdfPaper = null; hls = [];
+  $('#pdfwrap').innerHTML = `<p class="empty">${esc(why || 'No PDF open.')}</p>`;
+  $('#hllist').hidden = true; $('#hlshow').hidden = true;
+  $('#pdftitle').textContent = 'PDF';
+}
+
+// Capture a selection inside the text layer and store it as page-normalised rectangles.
+async function captureSelection(){
+  if(!hlOn || !pdfPaper) return;
+  const sel = window.getSelection();
+  if(!sel || sel.isCollapsed || !sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  const pg = (range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer
+                                                           : range.commonAncestorContainer.parentElement)?.closest('.pg');
+  if(!pg) return;
+  const box = pg.getBoundingClientRect();
+  const rects = [...range.getClientRects()]
+      .filter(r => r.width > 1 && r.height > 1)
+      .map(r => ({ x:(r.left-box.left)/box.width, y:(r.top-box.top)/box.height,
+                   w:r.width/box.width, h:r.height/box.height }));
+  if(!rects.length) return;
+  const body = { page:+pg.dataset.page, rects, text:sel.toString().trim(), color:'rgba(255,214,0,.45)' };
+  const r = await (await fetch(`/api/highlights/${pdfPaper.doi}`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})).json();
+  hls.push({...body, id:r.id});
+  sel.removeAllRanges();
+  drawHighlights(); renderHlList();
+}
+document.addEventListener('mouseup', () => setTimeout(captureSelection, 10));
+
+$('#hlmode').onclick = () => {
+  hlOn = !hlOn;
+  $('#hlmode').setAttribute('aria-pressed', String(hlOn));
+  $('#hlmode').textContent = 'Highlight: ' + (hlOn ? 'on' : 'off');
+  if(hlOn) toast('Select text to highlight · right-click a highlight to remove it');
+};
+
+// Right-click a highlight to remove it.
+//
+// Hit-tested by COORDINATE rather than by putting pointer-events on the overlays: the overlays sit
+// under the text layer so text over an existing highlight can still be selected, and making them
+// clickable would take that back. Testing the point against the stored rectangles keeps both.
+$('#pdfwrap').addEventListener('contextmenu', e => {
+  if(!pdfPaper || !hls.length) return;
+  const pg = e.target.closest('.pg');
+  if(!pg) return;
+  const box = pg.getBoundingClientRect();
+  const x = (e.clientX - box.left) / box.width, y = (e.clientY - box.top) / box.height;
+  const page = +pg.dataset.page;
+  const hit = hls.find(h => h.page === page &&
+      h.rects.some(r => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h));
+  if(!hit) return;
+  e.preventDefault();
+  hideCtx();
+  const m = document.createElement('div');
+  m.id = 'ctx';
+  m.innerHTML = `<button data-h="del">Remove highlight</button>
+                 <button data-h="copy">Copy its text</button>
+                 <hr><span class="dis" style="display:block;padding:4px 12px;font-size:11px;max-width:260px">${esc((hit.text||'').slice(0,90))}…</span>`;
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(e.clientX, innerWidth - r.width - 6) + 'px';
+  m.style.top  = Math.min(e.clientY, innerHeight - r.height - 6) + 'px';
+  m.onclick = ev => ev.stopPropagation();
+  m.querySelectorAll('[data-h]').forEach(b => b.onclick = async ev => {
+    ev.stopPropagation(); hideCtx();
+    if(b.dataset.h === 'copy'){ navigator.clipboard?.writeText(hit.text || ''); return; }
+    await fetch(`/api/highlights/${pdfPaper.doi}?del=${hit.id}`, {method:'POST'});
+    hls = hls.filter(x => x.id !== hit.id);
+    drawHighlights(); renderHlList();
+  });
+});
+
+// A brief, non-blocking message. Used to say how to undo a highlight at the moment you first become
+// able to make one, which is the only moment that instruction is useful.
+let toastTimer;
+function toast(msg){
+  let t = $('#toast');
+  if(!t){ t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+}
+
+$('#pdfclose').onclick = () => closePdf();
+$('#hlshow').onclick = () => {
+  const el = $('#hllist');
+  el.hidden = !el.hidden;
+  $('#hlshow').setAttribute('aria-expanded', String(!el.hidden));
+};
+
+// Burn highlights into a copy of the PDF, client-side, and hand it over as a download. The stored
+// file is never modified: highlights stay in the database so they survive re-downloading it.
+$('#hlexport').onclick = async () => {
+  if(!pdfPaper) return;
+  const b = $('#hlexport'); b.disabled = true; b.textContent = 'Exporting…';
+  try{
+    const bytes = await (await fetch(`/api/pdf/${pdfPaper.doi}`)).arrayBuffer();
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    for(const h of hls){
+      const page = doc.getPages()[h.page - 1];
+      if(!page) continue;
+      const {width, height} = page.getSize();
+      for(const r of h.rects){
+        page.drawRectangle({
+          x: r.x*width, y: height - (r.y + r.h)*height,   // PDF origin is bottom-left
+          width: r.w*width, height: r.h*height,
+          color: PDFLib.rgb(1, 0.84, 0), opacity: 0.38
+        });
+      }
+    }
+    const out = await doc.save();
+    const url = URL.createObjectURL(new Blob([out], {type:'application/pdf'}));
+    const a = document.createElement('a');
+    a.href = url; a.download = pdfPaper.doi.replace(/[\/\\:]/g,'_') + '-highlighted.pdf';
+    a.click(); URL.revokeObjectURL(url);
+  }catch(e){ alert('Export failed: ' + (e.message||e)); }
+  finally{ b.disabled = false; b.textContent = 'Export'; }
+};
+
+/* ---------- right-click menu ---------- */
+function hideCtx(){ const c = $('#ctx'); if(c) c.remove(); }
+
+function showCtx(e, p){
+  hideCtx();
+  const m = document.createElement('div');
+  m.id = 'ctx';
+  const offline = p.pdf_file
+      ? `<button data-c="open-offline">Read offline copy</button><button data-c="unsave">Remove offline copy</button>`
+      : `<button data-c="save">Save offline copy</button>`;
+  const via = proxify(`https://doi.org/${p.doi}`);
+  m.innerHTML = `
+    ${via?`<button data-c="open-proxy">Open via library</button>`:''}
+    <button data-c="open">Open paper (DOI)</button>
+    ${offline}
+    <hr>
+    <button data-c="${p.read_at?'unread':'read'}">${p.read_at?'Mark as unread':'Mark as read'}</button>
+    <button data-c="star">${p.starred?'Remove from favourites':'Add to favourites'}</button>
+    <button data-c="later">${p.read_later?'Remove from read later':'Read later'}</button>
+    <hr>
+    ${!p.ai_summary?'<button data-c="summarize">Summarise with Claude</button>':''}
+    <button data-c="copy">Copy DOI</button>
+    ${p.pdf_error?`<hr><span class="dis" style="display:block;padding:4px 12px;font-size:11.5px">${esc(p.pdf_error)}</span>`:''}`;
+  document.body.appendChild(m);
+  // keep the menu on screen when opened near an edge
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(e.clientX, innerWidth  - r.width  - 6) + 'px';
+  m.style.top  = Math.min(e.clientY, innerHeight - r.height - 6) + 'px';
+
+  m.querySelectorAll('[data-c]').forEach(b => b.onclick = async ev => {
+    ev.stopPropagation();
+    const c = b.dataset.c;
+    hideCtx();
+    if(c==='open'){ window.open(`https://doi.org/${p.doi}`,'_blank','noopener'); return; }
+    if(c==='open-proxy'){ window.open(proxify(`https://doi.org/${p.doi}`),'_blank','noopener'); return; }
+    if(c==='open-offline'){ window.open(`/api/pdf/${p.doi}`,'_blank','noopener'); return; }
+    if(c==='copy'){ navigator.clipboard?.writeText(p.doi); return; }
+    if(c==='save'){
+      const r2 = await (await fetch(`/api/papers/${p.doi}?action=save`,{method:'POST'})).json();
+      alert(r2.ok ? `Saved offline copy (${r2.detail}).` : `Could not save: ${r2.detail}`);
+      await load(); return;
+    }
+    await fetch(`/api/papers/${p.doi}?action=${c}`,{method:'POST'});
+    if(c==='summarize') return;
+    await load();
+  });
+}
+document.addEventListener('click', hideCtx);
+document.addEventListener('scroll', hideCtx, true);
+
+/* ---------- field picker ---------- */
+(function fieldPicker(){
+  const pop = $('#fieldspop'), btn = $('#fieldsbtn');
+  pop.innerHTML = FIELDS.map((f,i) =>
+      (i===3||i===6 ? '<hr>' : '') +
+      `<label><input type="checkbox" data-k="${f.k}"${fields[f.k]?' checked':''}>${f.label}</label>`).join('');
+  pop.querySelectorAll('input[data-k]').forEach(inp => inp.onchange = () => {
+    fields[inp.dataset.k] = inp.checked;
+    localStorage.setItem('sl.fields', JSON.stringify(fields));
+    renderList();
+  });
+  const close = () => { pop.hidden = true; btn.setAttribute('aria-expanded','false'); };
+  btn.onclick = e => {
+    e.stopPropagation();
+    pop.hidden = !pop.hidden;
+    btn.setAttribute('aria-expanded', String(!pop.hidden));
+  };
+  pop.onclick = e => e.stopPropagation();
+  document.addEventListener('click', close);
+  document.addEventListener('keydown', e => { if(e.key==='Escape') close(); });
+})();
+
+document.querySelectorAll('.chip[data-t]').forEach(c => {
+  c.setAttribute('aria-pressed', types.includes(c.dataset.t));
+  c.onclick = () => {
+    const k = c.dataset.t;
+    types = types.includes(k) ? types.filter(x => x !== k) : [...types, k];
+    localStorage.setItem('sl.types', JSON.stringify(types));
+    c.setAttribute('aria-pressed', types.includes(k));
+    if(isPanel(view)) go('inbox'); else load();
+  };
+});
+document.querySelectorAll('.chip[data-s]').forEach(c => {
+  c.setAttribute('aria-pressed', states.includes(c.dataset.s));
+  c.onclick = () => {
+    const k = c.dataset.s;
+    states = states.includes(k) ? states.filter(x => x !== k) : [...states, k];
+    localStorage.setItem('sl.states', JSON.stringify(states));
+    c.setAttribute('aria-pressed', states.includes(k));
+    if(isPanel(view)) go('inbox'); else load();
+  };
+});
+$('#sort').value = sortBy;
+// The caret points the way the list runs: down = newest/highest first.
+function paintDir(){
+  $('#dir').innerHTML = sortDir === 'desc' ? '&#9660;' : '&#9650;';
+  $('#dir').title = sortDir === 'desc'
+    ? 'Newest or highest first — click to reverse'
+    : 'Oldest or lowest first — click to reverse';
+}
+paintDir();
+$('#sort').onchange = e => {
+  sortBy = e.target.value;
+  localStorage.setItem('sl.sort', sortBy);
+  if(!isPanel(view)) load();
+};
+$('#dir').onclick = () => {
+  sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+  localStorage.setItem('sl.dir', sortDir);
+  paintDir();
+  if(!isPanel(view)) load();
+};
+
+let t; $('#q').oninput = () => { clearTimeout(t); t = setTimeout(load, 220); };
+$('#fetch').onclick = () => doFetch(null);
+$('#back').onclick = () => $('#prevcol').classList.remove('show');
+$('#allread').onclick = async () => {
+  if(!papers.length || !confirm(`Mark ${papers.length} paper(s) as read?`)) return;
+  for(const p of papers.filter(x=>!x.read_at)) await fetch(`/api/papers/${p.doi}?action=read`, {method:'POST'});
+  load();
+};
+
+// Keyboard: j/k move, Enter opens the paper, u toggles read, s stars, / searches.
+document.addEventListener('keydown', e => {
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)){ if(e.key==='Escape') e.target.blur(); return; }
+  if(e.key==='/'){ e.preventDefault(); $('#q').focus(); return; }
+  if(isPanel(view) || !papers.length) return;
+  const i = papers.findIndex(p => p.doi===sel);
+  if(e.key==='j' || e.key==='ArrowDown'){ e.preventDefault(); select(papers[Math.min(i+1, papers.length-1)] || papers[0]); scrollSel(); }
+  if(e.key==='k' || e.key==='ArrowUp'){ e.preventDefault(); select(papers[Math.max(i-1,0)] || papers[0]); scrollSel(); }
+  if(i<0) return;
+  if(e.key==='Enter'){ window.open(`https://doi.org/${papers[i].doi}`,'_blank','noopener'); }
+  if(e.key==='u'){ fetch(`/api/papers/${papers[i].doi}?action=${papers[i].read_at?'unread':'read'}`,{method:'POST'}).then(load); }
+  if(e.key==='s'){ fetch(`/api/papers/${papers[i].doi}?action=star`,{method:'POST'}).then(load); }
+});
+function scrollSel(){ const r = $('#list').querySelector('[aria-selected="true"]'); if(r) r.scrollIntoView({block:'nearest'}); }
+
+// Load config before the first render so proxied links are right on the very first paint.
+get('/api/config').then(c => { cfgCache = c; buildRail(); go(view); })
+                  .catch(() => { buildRail(); go(view); });
+setInterval(refreshStats, 60000);
+</script>
+</body>
+</html>

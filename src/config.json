@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+
+  "_publicUrl_comment": [
+    "The address this instance is reached at from other devices. Clients (the tray app, any future",
+    "client) read it from here rather than compiling it in, so nothing in the code is tied to one",
+    "host or tailnet. Set it to your own; it is only used to build links, never to bind a socket."
+  ],
+  "publicUrl": "http://127.0.0.1:8789/",
+
+  "_comment": [
+    "Journals to watch, by ISSN. Discovery is via the Crossref REST API by ISSN, NOT per-journal RSS:",
+    "Crossref is uniform across every publisher, needs no scraping, carries DOI/title/type/date, and does",
+    "not break when a publisher changes their feed URL (JAMA's guessed RSS URL already 404s).",
+    "",
+    "tier 1 = practice-changing venue; a stroke RCT here is almost always a must-read.",
+    "tier 2 = major specialty journal. tier 3 = worth seeing, lower priority.",
+    "Add a journal by appending its print or electronic ISSN - find it on the journal's homepage or at",
+    "https://portal.issn.org. Restart the service (or wait for the next ingest) to pick it up."
+  ],
+  "journals": [
+    { "issn": "0028-4793", "name": "New England Journal of Medicine", "tier": 1 },
+    { "issn": "0140-6736", "name": "The Lancet",                      "tier": 1 },
+    { "issn": "0098-7484", "name": "JAMA",                            "tier": 1 },
+    { "issn": "1474-4422", "name": "The Lancet Neurology",            "tier": 1 },
+    { "issn": "2168-6149", "name": "JAMA Neurology",                  "tier": 1 },
+    { "issn": "0039-2499", "name": "Stroke",                          "tier": 1 },
+    { "issn": "0028-3878", "name": "Neurology",                       "tier": 2 },
+    { "issn": "1747-4930", "name": "International Journal of Stroke", "tier": 2 },
+    { "issn": "2396-9873", "name": "European Stroke Journal",         "tier": 2 },
+    { "issn": "1759-8478", "name": "Journal of NeuroInterventional Surgery", "tier": 2 },
+    { "issn": "0364-5134", "name": "Annals of Neurology",             "tier": 2 },
+    { "issn": "0009-7322", "name": "Circulation",                     "tier": 2 },
+    { "issn": "0006-8950", "name": "Brain",                           "tier": 3 },
+    { "issn": "1015-9770", "name": "Cerebrovascular Diseases",        "tier": 3 },
+    { "issn": "2694-5746", "name": "Stroke: Vascular and Interventional Neurology", "tier": 3 }
+  ],
+
+  "_topic_comment": [
+    "A paper is kept if it scores at least minScore. Matching is case-insensitive on title + abstract.",
+    "Title matches count double - a stroke paper almost always says so in the title.",
+    "Tune these freely; they are the difference between a useful inbox and noise."
+  ],
+  "_proxy_comment": [
+    "Library proxy. Most papers in these journals are paywalled, and publishers block automated",
+    "download even of their open-access PDFs (verified against Wiley and neurology.org: HTTP 403 to",
+    "any non-browser client). So the realistic route to full text is a link through your institution.",
+    "",
+    "mode 'qurl'     uses loginUrl, with %u replaced by the whole target URL, percent-encoded.",
+    "mode 'hostname' uses hostPattern, with %h the target host and %p its path and query.",
+    "Your library publishes these on its off-campus access page. Editable in the UI under",
+    "Library proxy - this file is only the seed for a fresh install."
+  ],
+  "proxy": {
+    "enabled": false,
+    "name": "",
+    "mode": "qurl",
+    "loginUrl": "https://login.ezproxy.lib.example.edu/login?qurl=%u",
+    "hostPattern": "%h.ezproxy.lib.example.edu/%p"
+  },
+
+  "minScore": 2,
+  "topicTerms": [
+    "stroke", "thrombectomy", "thrombolysis", "thrombolytic", "alteplase", "tenecteplase", "tpa",
+    "intracerebral haemorrhage", "intracerebral hemorrhage", "intracranial haemorrhage",
+    "intracranial hemorrhage", "subarachnoid haemorrhage", "subarachnoid hemorrhage",
+    "cerebral infarct", "cerebral ischaemia", "cerebral ischemia", "brain ischaemia", "brain ischemia",
+    "transient ischaemic attack", "transient ischemic attack", "tia",
+    "large vessel occlusion", "carotid stenosis", "carotid endarterectomy", "carotid artery stenting",
+    "intracranial aneurysm", "cerebral aneurysm", "arteriovenous malformation",
+    "cerebral venous thrombosis", "cerebral venous sinus thrombosis",
+    "small vessel disease", "white matter hyperintensit", "cerebral amyloid angiopathy",
+    "moyamoya", "cervical artery dissection", "vertebral artery dissection",
+    "patent foramen ovale", "atrial fibrillation anticoagulation", "left atrial appendage",
+    "decompressive craniectomy", "hemicraniectomy", "cerebral oedema", "cerebral edema",
+    "neurocritical", "penumbra", "collateral circulation", "recanalization", "recanalisation",
+    "nihss", "modified rankin", "aspects score", "post-stroke", "poststroke"
+  ],
+
+  "_trial_comment": [
+    "Signals that a paper is an interventional trial. PubMed's 'Randomized Controlled Trial[pt]' filter",
+    "CANNOT be used for this: it only matches MEDLINE-indexed records, and brand-new papers are",
+    "'Publisher'/'In-Process' status for weeks. Verified 2026-10-03. So trials are detected from the",
+    "text and from registry identifiers instead, which work from day one."
+  ],
+  "trialTerms": [
+    "randomised", "randomized", "randomisation", "randomization",
+    "double-blind", "double blind", "single-blind", "placebo-controlled", "placebo controlled",
+    "open-label", "non-inferiority", "noninferiority", "superiority trial",
+    "phase 2", "phase 3", "phase ii", "phase iii",
+    "clinical trial", "controlled trial", "trial protocol", "intention-to-treat", "intention to treat"
+  ]
+}
