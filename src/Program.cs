@@ -213,10 +213,14 @@ Config LoadConfig()
     // Summaries default OFF. They need the Claude Code CLI installed and signed in, they spend the
     // user's own subscription allowance, and a fresh install cannot know whether either is true.
     var ai = root["ai"];
+    var scope = ai?["autoScope"]?.GetValue<string>()?.Trim().ToLowerInvariant();
+    if (scope is not ("all" or "rct" or "srma" or "rct+srma")) scope = "rct+srma";
     var aiCfg = new AiConfig(
         ai?["enabled"]?.GetValue<bool>() ?? false,
         ai?["readPdf"]?.GetValue<bool>() ?? true,
-        ai?["maxPerRun"]?.GetValue<int>() ?? 5);
+        ai?["maxPerRun"]?.GetValue<int>() ?? 5,
+        ai?["autoOnPdf"]?.GetValue<bool>() ?? false,
+        scope);
 
     return new Config(
         journals,
@@ -865,6 +869,49 @@ static string JatsToHtml(string xml, string title)
       """;
 }
 
+// Called whenever a paper gains an offline copy, from any of the three routes: fetched from an
+// open-access source, pushed by the bookmarklet, or attached by hand. Queues a summary if the user
+// has asked for that and the paper is in scope.
+//
+// It refuses to act on a paper that already has a summary, or one already queued. Overwriting a
+// summary the user may have steered with a note, just because a PDF arrived afterwards, would
+// quietly destroy work. Re-summarising is a thing the user asks for, never a side effect.
+void MaybeAutoSummarise(string doi)
+{
+    var cfg = LoadConfig();
+    if (!cfg.Ai.Enabled || !cfg.Ai.AutoOnPdf) return;
+
+    using var c = new SqliteConnection(connStr); c.Open();
+    bool rct, sr, ma;
+    using (var q = c.CreateCommand())
+    {
+        q.CommandText = "SELECT is_rct, is_sr, is_ma FROM papers "
+                      + "WHERE doi=$d AND abstract IS NOT NULL AND ai_summary IS NULL AND ai_requested=0";
+        q.Parameters.AddWithValue("$d", doi);
+        using var r = q.ExecuteReader();
+        if (!r.Read()) return;
+        rct = r.GetInt32(0) != 0;
+        sr  = r.GetInt32(1) != 0;
+        ma  = r.GetInt32(2) != 0;
+    }
+
+    var inScope = cfg.Ai.AutoScope switch
+    {
+        "all"      => true,
+        "rct"      => rct,
+        "srma"     => sr || ma,
+        "rct+srma" => rct || sr || ma,
+        _          => false
+    };
+    if (!inScope) return;
+
+    using var up = c.CreateCommand();
+    up.CommandText = "UPDATE papers SET ai_requested=1 WHERE doi=$d";
+    up.Parameters.AddWithValue("$d", doi);
+    up.ExecuteNonQuery();
+    log.LogInformation("auto-queued a summary for {Doi} (offline copy arrived, scope {Scope})", doi, cfg.Ai.AutoScope);
+}
+
 async Task<(bool ok, string detail)> DownloadPdf(string doi)
 {
     string? url = null, haveFile = null;
@@ -949,6 +996,8 @@ async Task<(bool ok, string detail)> DownloadPdf(string doi)
         up.Parameters.AddWithValue("$f", name);
         up.Parameters.AddWithValue("$d", doi);
         up.ExecuteNonQuery();
+        c.Close();
+        MaybeAutoSummarise(doi);
         return (true, $"{Math.Round(size / 1024.0)} KB");
     }
     catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
@@ -1186,7 +1235,11 @@ app.MapPost("/api/papers/{*doi}", async (string doi, string? action, HttpRequest
     // which this service, running under its own low-privilege account, cannot reach. The scheduled
     // task scripts\currents-summarize.ps1 picks these up and posts the result back.
     // "summarize" is handled above, before this switch, because it reads a request body.
-        _           => Results.BadRequest(new { error = "action must be read|unread|star|later|save|summarize" })
+    // Cancels a queued summary before the task picks it up. Needed because a summary can now be
+    // queued without anyone clicking: switch automatic summaries on and the next PDF queues itself,
+    // and there was no way to take that back. Also clears any note, so cancelling really cancels.
+        "unqueue"  => Flip(connStr, doi, "UPDATE papers SET ai_requested=0, ai_note=NULL WHERE doi=$doi"),
+        _           => Results.BadRequest(new { error = "action must be read|unread|star|later|save|summarize|unqueue" })
     };
 });
 
@@ -1276,6 +1329,7 @@ app.MapPost("/api/upload/{*doi}", async (string doi, HttpRequest req, HttpRespon
         up.Parameters.AddWithValue("$d", doi);
         up.ExecuteNonQuery();
     }
+    MaybeAutoSummarise(doi);
     var kb = Math.Round(new FileInfo(path).Length / 1024.0);
     log.LogInformation("attached PDF for {Doi} ({Kb} KB)", doi, kb);
     return Results.Json(new { ok = true, detail = $"{kb} KB attached" });
@@ -1641,6 +1695,13 @@ app.MapPut("/api/config", async (HttpRequest req) =>
         if (j?["issn"] is null || j["name"] is null)
             return Results.BadRequest(new { error = "every journal needs issn and name" });
 
+    // LoadConfig falls back to a safe value for an unrecognised scope, so a bad one is harmless at
+    // runtime. It is still refused here: the file is meant to be readable and hand-editable, and a
+    // value that silently does something else is exactly what makes a config file untrustworthy.
+    var sc = obj["ai"]?["autoScope"]?.GetValue<string>();
+    if (sc is not null && sc is not ("all" or "rct" or "srma" or "rct+srma"))
+        return Results.BadRequest(new { error = "ai.autoScope must be all, rct, srma or rct+srma" });
+
     // Keep the previous version. Config is hand-tuned over time and is the most valuable
     // non-reproducible state in the system.
     var backup = Path.Combine(dataDir, $"journals.{DateTime.Now:yyyyMMdd-HHmmss}.bak.json");
@@ -1750,5 +1811,8 @@ record Config(List<Journal> Journals, bool FilterEnabled, int MinScore, string[]
 // ReadPdf: hand the summariser the offline copy as well as the abstract. The abstract cannot show
 // whether a baseline table is unbalanced or whether a figure's confidence intervals cross one, and
 // those are the things worth knowing that the authors' own discussion tends not to volunteer.
-record AiConfig(bool Enabled, bool ReadPdf, int MaxPerRun);
+// AutoOnPdf: summarise by itself as soon as an offline copy arrives, whether it was fetched, sent
+// by the bookmarklet, or attached by hand. AutoScope narrows that to the study types worth the
+// allowance: "all", "rct", "srma", or "rct+srma".
+record AiConfig(bool Enabled, bool ReadPdf, int MaxPerRun, bool AutoOnPdf, string AutoScope);
 record PmRecord(string? Pmid, string? Abstract, string? AbstractJson, string? Conclusions, string? PubTypes, string? Nct);

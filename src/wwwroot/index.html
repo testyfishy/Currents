@@ -660,7 +660,9 @@ function select(p){
     ${take?`<div class="take"><h4>${label}</h4>${p.ai_summary?sectionise(take):esc(take)}
       ${p.ai_summary && aiOn()?`
       <div class="resum">
-        <button data-a="resum-open"${p.ai_requested?' disabled':''}>${p.ai_requested?'Re-summary queued':'Re-summarise'}</button>
+        ${p.ai_requested
+          ? '<button data-a="unqueue-sum">Cancel the queued re-summary</button>'
+          : '<button data-a="resum-open">Re-summarise</button>'}
         <div id="resumbox" hidden>
           <textarea id="resumnote" rows="3" placeholder="Optional. Anything extra to ask for, for example: focus on the subgroup analysis, or say whether the effect holds in the over-80s, or explain why this disagrees with the earlier trial."></textarea>
           <p class="hint">This is added to the usual request, so you still get every field back. Leave it
@@ -676,6 +678,11 @@ function select(p){
     const a = b.dataset.a;
     if(a==='openpdf'){ openPdf(p); return; }
     if(a==='resum-open'){   $('#resumbox').hidden = false; $('#resumnote').focus(); return; }
+    if(a==='unqueue-sum'){
+      await fetch(`/api/papers/${p.doi}?action=unqueue`, {method:'POST'});
+      await load(); const back = papers.find(x=>x.doi===p.doi); if(back) select(back);
+      return;
+    }
     if(a==='resum-cancel'){ $('#resumbox').hidden = true;  $('#resumnote').value = ''; return; }
     if(a==='resum-go'){
       const note = $('#resumnote').value.trim();
@@ -963,6 +970,26 @@ async function renderPanel(which){
       </tbody></table>
       <p class="hint">The scheduled task runs every 15 minutes and does at most this many each time.
          Kept low so a large queue cannot empty your allowance in one go.</p>
+      <h3>Automatically, when a PDF arrives</h3>
+      <label style="display:flex;gap:7px;align-items:center;margin:10px 0">
+        <input type="checkbox" id="aiauto" ${ai.autoOnPdf?'checked':''}>
+        Summarise a paper as soon as it has an offline copy
+      </label>
+      <p class="hint">Applies however the PDF arrived: fetched from an open-access source, sent by the
+         bookmarklet, or dragged in by hand. A paper that already has a summary is left alone, so
+         this never overwrites one you asked for yourself.</p>
+      <div id="aiscopebox" style="margin-left:22px"${ai.autoOnPdf?'':' hidden'}>
+        <p class="hint" style="margin-bottom:4px">Which papers:</p>
+        ${[['rct+srma','Randomised trials, systematic reviews and meta-analyses'],
+           ['rct','Randomised trials only'],
+           ['srma','Systematic reviews and meta-analyses only'],
+           ['all','Every paper that gets a PDF']]
+          .map(([v,t]) => `<label style="display:flex;gap:7px;align-items:center;margin:4px 0">
+             <input type="radio" name="aiscope" value="${v}" ${(ai.autoScope||'rct+srma')===v?'checked':''}> ${t}</label>`).join('')}
+        <p class="hint">The study-type tags come from the same classification the filters use, so this
+           follows whatever the list shows. Papers with no abstract are skipped, since there would be
+           nothing to summarise from.</p>
+      </div>
       <h3>State</h3>
       <table><tbody>
         <tr><th style="width:14em">Summarised</th><td>${cov.summarised ?? 0} of ${cov.total} papers</td></tr>
@@ -974,11 +1001,17 @@ async function renderPanel(which){
          summaries never arrive, that task is where to look, and its log is
          <code>logs\\summarize.log</code>.</p>
       <div class="act"><button class="pri" id="saveai">Save</button><span class="msg" id="aimsg"></span></div>`;
+    // The scope choice is meaningless with the automatic toggle off, so it follows it rather than
+    // sitting there inviting a setting that does nothing.
+    $('#aiauto').onchange = () => { $('#aiscopebox').hidden = !$('#aiauto').checked; };
     $('#saveai').onclick = async () => {
+      const scope = el.querySelector('input[name=aiscope]:checked');
       cfg.ai = {
         enabled: $('#aion').checked,
         readPdf: $('#aipdf').checked,
-        maxPerRun: Math.min(25, Math.max(1, +$('#aimax').value || 5))
+        maxPerRun: Math.min(25, Math.max(1, +$('#aimax').value || 5)),
+        autoOnPdf: $('#aiauto').checked,
+        autoScope: scope ? scope.value : 'rct+srma'
       };
       await saveCfg('#aimsg');
       cfgCache = await get('/api/config');
@@ -1339,9 +1372,11 @@ function showCtx(e, p){
     <button data-c="star">${p.starred?'Remove from favourites':'Add to favourites'}</button>
     <button data-c="later">${p.read_later?'Remove from read later':'Read later'}</button>
     <hr>
-    ${aiOn()?(p.ai_summary
-        ? '<button data-c="resummarize">Re-summarise, with a note</button>'
-        : '<button data-c="summarize">Summarise with Claude</button>'):''}
+    ${aiOn()?(p.ai_requested
+        ? '<button data-c="unqueue">Cancel queued summary</button>'
+        : p.ai_summary
+          ? '<button data-c="resummarize">Re-summarise, with a note</button>'
+          : '<button data-c="summarize">Summarise with Claude</button>'):''}
     <button data-c="copy">Copy DOI</button>
     ${p.pdf_error?`<hr><span class="dis" style="display:block;padding:4px 12px;font-size:11.5px">${esc(p.pdf_error)}</span>`:''}`;
   document.body.appendChild(m);

@@ -15,6 +15,20 @@ Every change from v1.1.0-alpha.1 onwards is recorded here as it is made. See
 - The right-click menu has **Get PDF via library**, which opens the paper through your proxy and
   marks the row as waiting for a file, so it is obvious which paper the next upload belongs to.
 
+- **Summarise automatically when a paper gets a PDF.** Under Settings, Summaries: a toggle for
+  whether it happens, and a choice of which papers it applies to. Randomised trials, systematic
+  reviews and meta-analyses together, which is the default; randomised trials only; systematic
+  reviews and meta-analyses only; or every paper that gets a PDF. It fires however the PDF arrived:
+  fetched from an open-access source, sent by the bookmarklet, or dragged in by hand. Papers with
+  no abstract are skipped, and a paper that already has a summary is left alone, so this can never
+  overwrite one asked for with an instruction of its own. The study-type tags are the same ones the
+  filters use. Verified with the scope set to randomised trials only: attaching a PDF to a tagged
+  trial queued it, attaching one to an untagged paper did not. An unrecognised scope is refused
+  when saving rather than stored and quietly ignored.
+- **A queued summary can be cancelled.** `unqueue` as a paper action, on the right-click menu and
+  under the summary. This exists because a summary can now be queued without anyone clicking one:
+  switch automatic summaries on, save a PDF, and it queues itself, with no way to take it back.
+  Cancelling also clears any instruction attached to the request.
 - **A summary can be asked for again, with an extra instruction.** The Summarise action used to
   vanish once a paper had a summary, so a bad one was permanent. Papers with a summary now show
   Re-summarise under it, which opens a box for a one-off instruction, for example "I only want to

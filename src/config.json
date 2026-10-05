@@ -69,12 +69,20 @@
     "            anything about baseline tables and figures, which is where unreported confounding",
     "            usually hides. With no offline copy it falls back to the abstract alone.",
     "maxPerRun - how many papers one run of the scheduled task will do. Small on purpose, because",
-    "            each one spends your own subscription allowance."
+    "            each one spends your own subscription allowance.",
+    "autoOnPdf - summarise on its own as soon as a paper gains an offline copy, however it arrived:",
+    "            fetched from an open-access source, pushed by the bookmarklet, or attached by hand.",
+    "            A paper that already has a summary is left alone, so this never overwrites one you",
+    "            asked for with a note of your own.",
+    "autoScope - which papers that applies to: 'all', 'rct' for randomised trials, 'srma' for",
+    "            systematic reviews and meta-analyses, or 'rct+srma' for both."
   ],
   "ai": {
     "enabled": false,
     "readPdf": true,
-    "maxPerRun": 5
+    "maxPerRun": 5,
+    "autoOnPdf": false,
+    "autoScope": "rct+srma"
   },
 
   "minScore": 2,
